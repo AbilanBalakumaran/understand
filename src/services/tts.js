@@ -1,39 +1,103 @@
-let currentUtterance = null
+/**
+ * TTS service: Uses Google Translate TTS (unofficial) as primary.
+ * Falls back to Web Speech API if Google TTS is unavailable.
+ */
 
-// Pre-trigger voice loading as early as possible
-if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-  window.speechSynthesis.getVoices()
+const GTTS_BASE = 'https://translate.google.com/translate_tts'
+const MAX_CHUNK = 180 // Google TTS max ~200 chars
+
+// Language codes needing special handling for Google TTS
+const LANG_OVERRIDE = {
+  'fil-PH': 'tl',   // Tagalog
+  'zh-CN': 'zh-CN', // Chinese Simplified
+  'zh-TW': 'zh-TW', // Chinese Traditional
+  'pt-BR': 'pt-BR', // Brazilian Portuguese
 }
 
-/**
- * Get the best available voice for a language.
- */
-function getBestVoice(lang) {
-  const voices = window.speechSynthesis.getVoices()
-  if (!voices.length) return null
-
-  const base = lang.split('-')[0].toLowerCase()
-
-  // Prefer exact match
-  let voice = voices.find((v) => v.lang.toLowerCase() === lang.toLowerCase())
-  // Then language prefix match
-  if (!voice) voice = voices.find((v) => v.lang.toLowerCase().startsWith(base))
-  // Then any match
-  if (!voice) voice = voices.find((v) => v.lang.toLowerCase().includes(base))
-
-  return voice || null
+function toGTTSLang(bcp47) {
+  return LANG_OVERRIDE[bcp47] ?? bcp47.split('-')[0]
 }
 
-/**
- * Stop any current speech.
- */
+function buildGTTSUrl(text, lang) {
+  return `${GTTS_BASE}?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${toGTTSLang(lang)}&client=tw-ob`
+}
+
+function splitIntoChunks(text) {
+  if (text.length <= MAX_CHUNK) return [text]
+
+  const sentences = text
+    .replace(/([.!?。！？])\s+/g, '$1\n')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean)
+
+  const chunks = []
+  let current = ''
+
+  for (const sentence of sentences) {
+    const next = current ? `${current} ${sentence}` : sentence
+    if (next.length <= MAX_CHUNK) {
+      current = next
+    } else {
+      if (current) chunks.push(current)
+      if (sentence.length <= MAX_CHUNK) {
+        current = sentence
+      } else {
+        // Split long sentence by words
+        current = ''
+        for (const word of sentence.split(' ')) {
+          const w = current ? `${current} ${word}` : word
+          if (w.length <= MAX_CHUNK) {
+            current = w
+          } else {
+            if (current) chunks.push(current)
+            current = word
+          }
+        }
+      }
+    }
+  }
+  if (current) chunks.push(current)
+
+  return chunks.length ? chunks : [text.slice(0, MAX_CHUNK)]
+}
+
+// --- State ---
+let currentAudio = null
+let isActivePlaying = false
+
 export function stopSpeech() {
-  window.speechSynthesis.cancel()
-  currentUtterance = null
+  isActivePlaying = false
+  if (currentAudio) {
+    currentAudio.pause()
+    currentAudio.src = ''
+    currentAudio = null
+  }
+  if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+}
+
+export function pauseSpeech() {
+  if (currentAudio && !currentAudio.paused) {
+    currentAudio.pause()
+  } else if ('speechSynthesis' in window) {
+    window.speechSynthesis.pause()
+  }
+}
+
+export function resumeSpeech() {
+  if (currentAudio?.paused && currentAudio.src) {
+    currentAudio.play()
+  } else if ('speechSynthesis' in window) {
+    window.speechSynthesis.resume()
+  }
+}
+
+export function isSpeaking() {
+  return isActivePlaying || ('speechSynthesis' in window && window.speechSynthesis.speaking)
 }
 
 /**
- * Speak text in a given language.
+ * Speak text in a given language using Google TTS.
  * @param {string} text
  * @param {string} lang - BCP-47 code e.g. 'fr-FR'
  * @param {object} options
@@ -42,117 +106,101 @@ export function stopSpeech() {
  * @param {(err: Error) => void} options.onError
  */
 export function speak(text, lang, { rate = 0.9, onEnd, onError } = {}) {
-  if (!('speechSynthesis' in window)) {
-    onError?.(new Error('Text-to-speech is not supported in this browser.'))
-    return null
-  }
-
   stopSpeech()
 
-  const doSpeak = () => {
-    // Chrome bug: long utterances get cut off — split into sentences
-    const sentences = splitIntoSentences(text)
-    if (sentences.length > 1) {
-      speakSentences(sentences, lang, rate, onEnd, onError)
+  const chunks = splitIntoChunks(text)
+  let index = 0
+  isActivePlaying = true
+
+  const playNext = () => {
+    if (!isActivePlaying) return
+    if (index >= chunks.length) {
+      isActivePlaying = false
+      onEnd?.()
       return
     }
 
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = lang
-    utterance.rate = rate
-    utterance.pitch = 1
+    const chunk = chunks[index++]
+    const audio = new Audio()
+    currentAudio = audio
 
-    const voice = getBestVoice(lang)
-    if (voice) utterance.voice = voice
+    try {
+      // Clamp playback rate to valid range
+      audio.playbackRate = Math.min(Math.max(rate, 0.5), 2)
+    } catch (_) { /* not supported on all browsers */ }
 
-    utterance.onend = () => {
-      currentUtterance = null
-      onEnd?.()
-    }
-    utterance.onerror = (e) => {
-      currentUtterance = null
-      if (e.error !== 'interrupted') {
-        onError?.(new Error(`Speech error: ${e.error}`))
-      }
+    const handleError = () => {
+      if (!isActivePlaying) return
+      // Fall back to Web Speech API for remaining text
+      const remaining = chunks.slice(index - 1).join(' ')
+      isActivePlaying = false
+      speakFallback(remaining, lang, rate, onEnd, onError)
     }
 
-    currentUtterance = utterance
-    window.speechSynthesis.speak(utterance)
+    audio.addEventListener('ended', playNext, { once: true })
+    audio.addEventListener('error', handleError, { once: true })
+
+    audio.src = buildGTTSUrl(chunk, lang)
+    audio.play().catch(handleError)
   }
 
-  // Ensure voices are loaded before selecting them
+  playNext()
+}
+
+// --- Web Speech API fallback ---
+
+// Pre-load voices early
+if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+  window.speechSynthesis.getVoices()
+}
+
+function getBestVoice(lang) {
+  const voices = window.speechSynthesis.getVoices()
+  if (!voices.length) return null
+  const base = lang.split('-')[0].toLowerCase()
+  return (
+    voices.find((v) => v.lang.toLowerCase() === lang.toLowerCase()) ||
+    voices.find((v) => v.lang.toLowerCase().startsWith(base)) ||
+    null
+  )
+}
+
+function speakFallback(text, lang, rate, onEnd, onError) {
+  if (!('speechSynthesis' in window)) {
+    onError?.(new Error('Text-to-speech is not supported in this browser.'))
+    return
+  }
+
+  window.speechSynthesis.cancel()
+
+  const doSpeak = () => {
+    const sentences = text
+      .replace(/([.!?])\s+/g, '$1\n')
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+
+    let i = 0
+    const speakNext = () => {
+      if (i >= sentences.length) { onEnd?.(); return }
+      const utterance = new SpeechSynthesisUtterance(sentences[i++])
+      utterance.lang = lang
+      utterance.rate = rate
+      utterance.pitch = 1
+      const voice = getBestVoice(lang)
+      if (voice) utterance.voice = voice
+      utterance.onend = speakNext
+      utterance.onerror = (e) => {
+        if (e.error !== 'interrupted') onError?.(new Error(`Speech error: ${e.error}`))
+      }
+      window.speechSynthesis.speak(utterance)
+    }
+    speakNext()
+  }
+
   if (window.speechSynthesis.getVoices().length) {
     doSpeak()
   } else {
     window.speechSynthesis.addEventListener('voiceschanged', doSpeak, { once: true })
   }
-}
-
-/**
- * Split text into sentences for Chrome TTS workaround.
- */
-function splitIntoSentences(text) {
-  return text
-    .replace(/([.!?])\s+/g, '$1\n')
-    .split('\n')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
-}
-
-/**
- * Speak sentences sequentially (Chrome long text workaround).
- * Voices must already be loaded before calling this.
- */
-function speakSentences(sentences, lang, rate, onEnd, onError) {
-  let index = 0
-
-  const speakNext = () => {
-    if (index >= sentences.length) {
-      onEnd?.()
-      return
-    }
-    const utterance = new SpeechSynthesisUtterance(sentences[index])
-    utterance.lang = lang
-    utterance.rate = rate
-    utterance.pitch = 1
-
-    const voice = getBestVoice(lang)
-    if (voice) utterance.voice = voice
-
-    utterance.onend = () => {
-      index++
-      speakNext()
-    }
-    utterance.onerror = (e) => {
-      if (e.error !== 'interrupted') {
-        onError?.(new Error(`Speech error: ${e.error}`))
-      }
-    }
-
-    currentUtterance = utterance
-    window.speechSynthesis.speak(utterance)
-  }
-
-  speakNext()
-}
-
-/**
- * Pause speech.
- */
-export function pauseSpeech() {
-  window.speechSynthesis.pause()
-}
-
-/**
- * Resume speech.
- */
-export function resumeSpeech() {
-  window.speechSynthesis.resume()
-}
-
-/**
- * Check if speech synthesis is speaking.
- */
-export function isSpeaking() {
-  return window.speechSynthesis.speaking
 }
