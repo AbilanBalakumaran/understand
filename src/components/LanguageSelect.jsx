@@ -140,7 +140,7 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
       </div>
 
       {/* Fixed bottom CTA */}
-      <div className="fixed bottom-0 left-0 right-0 px-4 pb-6 pt-3 bg-white border-t border-gray-100 safe-bottom">
+      <div className="fixed bottom-0 left-3 right-3 sm:left-0 sm:right-0 px-4 pb-6 pt-3 bg-white border border-gray-100 rounded-t-2xl safe-bottom shadow-lg">
         {selectedTarget && (
           <div className="flex items-center gap-2 mb-3 bg-primary-50 rounded-xl px-4 py-2.5">
             <span className="text-lg">{selectedTarget.flag}</span>
