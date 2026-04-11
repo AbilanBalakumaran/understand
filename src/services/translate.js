@@ -50,10 +50,11 @@ async function translateChunk(chunk, sourceLang, targetLang) {
   if (!res.ok) throw new Error(`Translation request failed: ${res.status}`)
   const data = await res.json()
   if (data.responseStatus !== 200) {
-    // Fall back to original chunk on error
-    return chunk
+    throw new Error(data.responseDetails || `Translation failed (status ${data.responseStatus})`)
   }
-  return data.responseData?.translatedText || chunk
+  const translated = data.responseData?.translatedText
+  if (!translated) throw new Error('Empty translation response')
+  return translated
 }
 
 /**
