@@ -1,5 +1,10 @@
 let currentUtterance = null
 
+// Pre-trigger voice loading as early as possible
+if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+  window.speechSynthesis.getVoices()
+}
+
 /**
  * Get the best available voice for a language.
  */
@@ -44,43 +49,43 @@ export function speak(text, lang, { rate = 0.9, onEnd, onError } = {}) {
 
   stopSpeech()
 
-  const utterance = new SpeechSynthesisUtterance(text)
-  utterance.lang = lang
-  utterance.rate = rate
-  utterance.pitch = 1
+  const doSpeak = () => {
+    // Chrome bug: long utterances get cut off — split into sentences
+    const sentences = splitIntoSentences(text)
+    if (sentences.length > 1) {
+      speakSentences(sentences, lang, rate, onEnd, onError)
+      return
+    }
 
-  // Assign voice after voices are loaded
-  const assignVoice = () => {
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = lang
+    utterance.rate = rate
+    utterance.pitch = 1
+
     const voice = getBestVoice(lang)
     if (voice) utterance.voice = voice
-  }
 
-  if (window.speechSynthesis.getVoices().length) {
-    assignVoice()
-  } else {
-    window.speechSynthesis.addEventListener('voiceschanged', assignVoice, { once: true })
-  }
-
-  utterance.onend = () => {
-    currentUtterance = null
-    onEnd?.()
-  }
-  utterance.onerror = (e) => {
-    currentUtterance = null
-    if (e.error !== 'interrupted') {
-      onError?.(new Error(`Speech error: ${e.error}`))
+    utterance.onend = () => {
+      currentUtterance = null
+      onEnd?.()
     }
+    utterance.onerror = (e) => {
+      currentUtterance = null
+      if (e.error !== 'interrupted') {
+        onError?.(new Error(`Speech error: ${e.error}`))
+      }
+    }
+
+    currentUtterance = utterance
+    window.speechSynthesis.speak(utterance)
   }
 
-  // Chrome bug: long utterances get cut off — split into sentences
-  const sentences = splitIntoSentences(text)
-  if (sentences.length > 1) {
-    speakSentences(sentences, lang, rate, onEnd, onError)
-    return
+  // Ensure voices are loaded before selecting them
+  if (window.speechSynthesis.getVoices().length) {
+    doSpeak()
+  } else {
+    window.speechSynthesis.addEventListener('voiceschanged', doSpeak, { once: true })
   }
-
-  currentUtterance = utterance
-  window.speechSynthesis.speak(utterance)
 }
 
 /**
@@ -96,6 +101,7 @@ function splitIntoSentences(text) {
 
 /**
  * Speak sentences sequentially (Chrome long text workaround).
+ * Voices must already be loaded before calling this.
  */
 function speakSentences(sentences, lang, rate, onEnd, onError) {
   let index = 0
