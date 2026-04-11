@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { speak, stopSpeech, pauseSpeech, resumeSpeech } from '../services/tts'
 
 const SPEEDS = [0.6, 0.8, 1.0, 1.2, 1.5]
@@ -18,17 +18,7 @@ export default function AudioPlayer({
   const [paused, setPaused] = useState(false)
   const [speedIndex, setSpeedIndex] = useState(2) // default 1.0x
   const [copied, setCopied] = useState(false)
-  const hasStartedRef = useRef(false)
-
   const isReady = !isProcessing && !error && translatedText
-
-  // Auto-play when ready
-  useEffect(() => {
-    if (isReady && !hasStartedRef.current) {
-      hasStartedRef.current = true
-      handlePlay()
-    }
-  }, [isReady])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -166,7 +156,10 @@ export default function AudioPlayer({
             <div className="bg-gradient-to-br from-primary-600 to-primary-800 rounded-3xl p-6 text-white flex flex-col items-center gap-4">
               <div className="text-4xl">{targetLang.flag}</div>
               <p className="text-sm text-blue-200 text-center">
-                Audio in <strong className="text-white">{targetLang.name}</strong>
+                {playing
+                  ? <>Audio in <strong className="text-white">{targetLang.name}</strong></>
+                  : <strong className="text-white">Appuyer pour écouter en {targetLang.name}</strong>
+                }
               </p>
 
               {/* Play / Pause / Stop */}
@@ -258,7 +251,7 @@ export default function AudioPlayer({
       </div>
 
       {/* Start over */}
-      <div className="fixed bottom-0 left-0 right-0 px-4 pb-6 pt-3 bg-white border-t border-gray-100 safe-bottom">
+      <div className="fixed bottom-0 left-3 right-3 sm:left-0 sm:right-0 px-4 pb-6 pt-3 bg-white border border-gray-100 rounded-t-2xl safe-bottom shadow-lg">
         <button
           onClick={() => { handleStop(); onStartOver() }}
           className="w-full flex items-center justify-center gap-2 border-2 border-primary-600 text-primary-700 rounded-2xl py-4 font-bold text-base hover:bg-primary-50 active:bg-primary-100 transition-colors"
