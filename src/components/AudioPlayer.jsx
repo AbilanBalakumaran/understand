@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { speak, stopSpeech, pauseSpeech, resumeSpeech, hasVoiceFor } from '../services/tts'
+import { speak, stopSpeech, pauseSpeech, resumeSpeech } from '../services/tts'
 
 const SPEEDS = [0.6, 0.8, 1.0, 1.2, 1.5]
 
@@ -18,21 +18,7 @@ export default function AudioPlayer({
   const [paused, setPaused] = useState(false)
   const [speedIndex, setSpeedIndex] = useState(2) // default 1.0x
   const [copied, setCopied] = useState(false)
-  const [voiceAvailable, setVoiceAvailable] = useState(null) // null = checking, true/false = result
   const isReady = !isProcessing && !error && translatedText
-
-  // Check voice availability once voices are loaded
-  useEffect(() => {
-    const check = () => setVoiceAvailable(hasVoiceFor(targetLang.tts))
-    if (window.speechSynthesis?.getVoices().length) {
-      check()
-    } else {
-      window.speechSynthesis?.addEventListener('voiceschanged', check, { once: true })
-      // Fallback if voiceschanged never fires (some browsers)
-      const t = setTimeout(check, 2000)
-      return () => clearTimeout(t)
-    }
-  }, [targetLang])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -45,7 +31,11 @@ export default function AudioPlayer({
     speak(translatedText, targetLang.tts, {
       rate,
       onEnd: () => { setPlaying(false); setPaused(false) },
-      onError: () => { setPlaying(false); setPaused(false) }
+      onError: (err) => {
+        setPlaying(false)
+        setPaused(false)
+        console.error('TTS error:', err)
+      }
     })
     setPlaying(true)
     setPaused(false)
@@ -68,24 +58,21 @@ export default function AudioPlayer({
   }
 
   const handleReplay = () => {
-    handleStop()
-    setTimeout(handlePlay, 100)
+    // speak() calls stopSpeech() internally — no setTimeout needed (would break iOS gesture context)
+    handlePlay()
   }
 
   const handleSpeedChange = () => {
     const next = (speedIndex + 1) % SPEEDS.length
     setSpeedIndex(next)
     if (playing) {
-      handleStop()
-      setTimeout(() => {
-        speak(translatedText, targetLang.tts, {
-          rate: SPEEDS[next],
-          onEnd: () => { setPlaying(false); setPaused(false) },
-          onError: () => { setPlaying(false); setPaused(false) }
-        })
-        setPlaying(true)
-        setPaused(false)
-      }, 100)
+      speak(translatedText, targetLang.tts, {
+        rate: SPEEDS[next],
+        onEnd: () => { setPlaying(false); setPaused(false) },
+        onError: (err) => { setPlaying(false); setPaused(false); console.error('TTS error:', err) }
+      })
+      setPlaying(true)
+      setPaused(false)
     }
   }
 
@@ -166,31 +153,13 @@ export default function AudioPlayer({
         {/* Audio controls */}
         {isReady && (
           <div className="mt-2 space-y-4">
-            {/* No voice warning */}
-            {voiceAvailable === false && (
-              <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex gap-3">
-                <span className="text-xl shrink-0">⚠️</span>
-                <div>
-                  <p className="text-sm font-semibold text-amber-800">
-                    Voix {targetLang.name} non installée
-                  </p>
-                  <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
-                    Votre appareil n'a pas de voix {targetLang.name}. Installez-la dans{' '}
-                    <strong>Paramètres → Accessibilité → Parole</strong> (iOS) ou{' '}
-                    <strong>Paramètres → Gestion générale → Langue</strong> (Android).
-                  </p>
-                </div>
-              </div>
-            )}
             {/* Big play area */}
             <div className="bg-gradient-to-br from-primary-600 to-primary-800 rounded-3xl p-6 text-white flex flex-col items-center gap-4">
               <div className="text-4xl">{targetLang.flag}</div>
               <p className="text-sm text-blue-200 text-center">
                 {playing
                   ? <>Audio en <strong className="text-white">{targetLang.name}</strong></>
-                  : voiceAvailable === false
-                    ? <span className="text-amber-200">Voix {targetLang.name} non disponible</span>
-                    : <strong className="text-white">Appuyer pour écouter en {targetLang.name}</strong>
+                  : <strong className="text-white">Appuyer pour écouter en {targetLang.name}</strong>
                 }
               </p>
 
