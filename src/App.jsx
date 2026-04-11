@@ -70,7 +70,7 @@ export default function App() {
   }
 
   return (
-    <div className="max-w-md mx-auto relative min-h-screen">
+    <div className="max-w-md mx-auto relative min-h-screen px-3 sm:px-0">
       {step === STEP.UPLOAD && (
         <UploadStep
           onImageSelected={(file, preview) => {
