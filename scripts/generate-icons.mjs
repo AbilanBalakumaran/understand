@@ -1,8 +1,13 @@
 /**
- * Generates PWA icon PNGs directly from public/icon.svg using sharp.
- * No padding is added — the blue fills edge-to-edge on regular icons.
- * The maskable variant adds the mandatory 10 % safe-zone on each side
- * (Android adaptive icon spec) filled with the app's cobalt blue.
+ * Generates PWA icon PNGs from public/icon.svg using sharp.
+ *
+ * Key points:
+ *  - .flatten() fills any transparent pixels with cobalt blue BEFORE encoding.
+ *    This guards against SVG renderers (librsvg, WebKit) that silently fail
+ *    to resolve gradients and leave the background transparent — which then
+ *    appears white on iOS home screen or Android launcher.
+ *  - No padding on regular icons (full bleed, edge-to-edge blue).
+ *  - Maskable icon gets the standard 10 % safe-zone padding filled with blue.
  */
 
 import sharp from 'sharp'
@@ -10,26 +15,35 @@ import { readFileSync } from 'fs'
 
 const svg = readFileSync('public/icon.svg')
 
-// Cobalt blue background for maskable safe zone  (#2E5BFF)
-const COBALT = { r: 46, g: 91, b: 255, alpha: 1 }
+// Cobalt blue — must match the SVG background colour (#2E5BFF)
+const COBALT = { r: 46, g: 91, b: 255 }
 
+/** Regular icon — full bleed, no padding, transparent pixels → blue. */
 async function png(size, dest) {
   await sharp(svg)
     .resize(size, size)
+    .flatten({ background: COBALT })   // ← critical: kills any transparent bg
     .png({ compressionLevel: 9 })
     .toFile(dest)
   console.log(`  ✔ ${dest}`)
 }
 
+/** Maskable icon — content scaled to 80 %, safe-zone filled with blue. */
 async function maskable(totalSize, dest) {
-  const pad    = Math.round(totalSize * 0.10)   // 10 % each side
-  const inner  = totalSize - pad * 2
-  const icon   = await sharp(svg).resize(inner, inner).png().toBuffer()
+  const pad   = Math.round(totalSize * 0.10)
+  const inner = totalSize - pad * 2
+
+  const icon = await sharp(svg)
+    .resize(inner, inner)
+    .flatten({ background: COBALT })
+    .png()
+    .toBuffer()
 
   await sharp({
-    create: { width: totalSize, height: totalSize, channels: 4, background: COBALT }
+    create: { width: totalSize, height: totalSize, channels: 4, background: { ...COBALT, alpha: 1 } }
   })
     .composite([{ input: icon, top: pad, left: pad }])
+    .flatten({ background: COBALT })
     .png({ compressionLevel: 9 })
     .toFile(dest)
   console.log(`  ✔ ${dest}  (maskable, ${pad}px safe-zone)`)
