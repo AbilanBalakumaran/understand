@@ -15,60 +15,52 @@ html, body, #root {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background: #EFF6FF;
+  background: #F4F6FF;
   overscroll-behavior: none;
 }
 
 @layer utilities {
   .safe-bottom {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
   }
 }
 
-
-/* Smooth scroll */
 html {
   scroll-behavior: smooth;
 }
 
-/* Remove default input/button outline and apply custom */
 button:focus-visible {
-  outline: 3px solid #2563EB;
+  outline: 3px solid #2E5BFF;
   outline-offset: 2px;
 }
 
 input:focus-visible {
-  outline: 2px solid #2563EB;
+  outline: 2px solid #2E5BFF;
   outline-offset: 1px;
 }
 
-/* Language grid scrollbar */
-.lang-grid::-webkit-scrollbar {
-  width: 4px;
-}
-.lang-grid::-webkit-scrollbar-track {
-  background: #EFF6FF;
-}
-.lang-grid::-webkit-scrollbar-thumb {
-  background: #93C5FD;
-  border-radius: 2px;
-}
+/* Scrollbar — language grid */
+.lang-grid::-webkit-scrollbar { width: 4px; }
+.lang-grid::-webkit-scrollbar-track { background: #F4F6FF; }
+.lang-grid::-webkit-scrollbar-thumb { background: #C2D0FF; border-radius: 2px; }
 
-/* Audio waveform pulse animation */
+/* Pulse ring on play button */
 @keyframes pulse-ring {
-  0% { transform: scale(0.8); opacity: 1; }
-  100% { transform: scale(1.6); opacity: 0; }
+  0%   { transform: scale(0.85); opacity: 1; }
+  100% { transform: scale(1.65); opacity: 0; }
 }
+.pulse-ring { animation: pulse-ring 1.4s ease-out infinite; }
 
-.pulse-ring {
-  animation: pulse-ring 1.4s ease-out infinite;
-}
-
+/* Slow spinner */
 @keyframes spin-slow {
   from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  to   { transform: rotate(360deg); }
 }
+.spin-slow { animation: spin-slow 2s linear infinite; }
 
-.spin-slow {
-  animation: spin-slow 2s linear infinite;
+/* Subtle fade-in for cards */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
+.fade-up { animation: fade-up 0.3s ease-out both; }

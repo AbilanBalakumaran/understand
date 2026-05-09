@@ -1,63 +1,52 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import UploadStep from './components/UploadStep'
 import LanguageSelect from './components/LanguageSelect'
 import AudioPlayer from './components/AudioPlayer'
-import { extractText } from './services/ocr'
+import { extractText, detectImageLanguage } from './services/ocr'
 import { translateText } from './services/translate'
+import { SOURCE_LANGUAGES } from './data/languages'
 
 const STEP = { UPLOAD: 0, LANGUAGE: 1, AUDIO: 2 }
 
 /**
- * Plages Unicode pour chaque script non-latin.
- * Permet de supprimer du texte source les caractères appartenant déjà
- * à la langue cible (éléments d'interface, fragments déjà traduits).
+ * Unicode ranges per script — used to strip target-script noise from OCR output.
  */
 const TARGET_SCRIPT_REGEX = {
-  ta: /[஀-௿]/g,          // Tamil
-  te: /[ఀ-౿]/g,          // Telugu
-  kn: /[ಀ-೿]/g,          // Kannada
-  ml: /[ഀ-ൿ]/g,          // Malayalam
-  si: /[඀-෿]/g,          // Sinhala
-  hi: /[ऀ-ॿ]/g,          // Devanagari (Hindi, Marathi, Nepali)
+  ta: /[஀-௿]/g,
+  te: /[ఀ-౿]/g,
+  kn: /[ಀ-೿]/g,
+  ml: /[ഀ-ൿ]/g,
+  si: /[඀-෿]/g,
+  hi: /[ऀ-ॿ]/g,
   mr: /[ऀ-ॿ]/g,
   ne: /[ऀ-ॿ]/g,
-  ar: /[؀-ۿݐ-ݿ]/g, // Arabe
+  ar: /[؀-ۿݐ-ݿ]/g,
   ur: /[؀-ۿݐ-ݿ]/g,
   fa: /[؀-ۿݐ-ݿ]/g,
-  'zh-CN': /[一-鿿㐀-䶿]/g, // Chinois
+  'zh-CN': /[一-鿿㐀-䶿]/g,
   'zh-TW': /[一-鿿㐀-䶿]/g,
-  ja: /[぀-ヿ一-鿿]/g,     // Japonais
-  ko: /[가-힯]/g,          // Coréen
-  ru: /[Ѐ-ӿ]/g,          // Cyrillique
+  ja: /[぀-ヿ一-鿿]/g,
+  ko: /[가-힯]/g,
+  ru: /[Ѐ-ӿ]/g,
   uk: /[Ѐ-ӿ]/g,
-  ka: /[Ⴀ-ჿ]/g,          // Géorgien
-  hy: /[԰-֏]/g,          // Arménien
-  am: /[ሀ-፿]/g,          // Éthiopien
+  ka: /[Ⴀ-ჿ]/g,
+  hy: /[԰-֏]/g,
+  am: /[ሀ-፿]/g,
 }
 
-/**
- * Nettoie le texte OCR avant traduction :
- * 1. Supprime les caractères appartenant déjà au script cible (bruit d'interface)
- * 2. Filtre les lignes parasites (symboles, horodatages, trop courtes)
- */
 function cleanOCRText(text, targetLangCode) {
-  // Étape 1 : supprimer les caractères du script cible présents dans le source
   const scriptRegex = TARGET_SCRIPT_REGEX[targetLangCode]
   let processed = scriptRegex
     ? text.replace(new RegExp(scriptRegex.source, 'g'), '')
     : text
 
-  // Étape 2 : filtrer les lignes parasites
   const lines = processed.split('\n').map((l) => l.trim()).filter(Boolean)
 
   const cleaned = lines.filter((line) => {
     const letters = (line.match(/\p{L}/gu) || [])
     if (letters.length < 4) return false
-    // Lignes commençant par des symboles d'interface
-    if (/^[“”‘’"'<>\[\]{}/\\|=+*&#@~`]+/.test(line)) return false
-    // Horodatages de barre de statut
+    if (/^[""''"'<>\[\]{}/\\|=+*&#@~`]+/.test(line)) return false
     if (/^\d{1,2}:\d{2}/.test(line)) return false
-    // Trop de symboles/chiffres
     if (letters.length < line.length * 0.35) return false
     return true
   })
@@ -66,25 +55,50 @@ function cleanOCRText(text, targetLangCode) {
 }
 
 export default function App() {
-  const [step, setStep] = useState(STEP.UPLOAD)
-  const [imageFile, setImageFile] = useState(null)
-  const [imagePreview, setImagePreview] = useState(null)
-  const [targetLang, setTargetLang] = useState(null)
+  const [step, setStep]                     = useState(STEP.UPLOAD)
+  const [imageFile, setImageFile]           = useState(null)
+  const [imagePreview, setImagePreview]     = useState(null)
+  const [targetLang, setTargetLang]         = useState(null)
   const [translatedText, setTranslatedText] = useState('')
-  const [ocrProgress, setOcrProgress] = useState(0)
+  const [ocrProgress, setOcrProgress]       = useState(0)
   const [translateProgress, setTranslateProgress] = useState(0)
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [error, setError] = useState(null)
+  const [isProcessing, setIsProcessing]     = useState(false)
+  const [error, setError]                   = useState(null)
+
+  // Auto language detection
+  const [detectedSourceLang, setDetectedSourceLang] = useState(null)
+  const [isDetecting, setIsDetecting]               = useState(false)
+  const detectAbortRef                              = useRef(false)
+
+  // Scroll to top on every step change
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }, [step])
+
+  // Run OSD detection when entering LanguageSelect
+  useEffect(() => {
+    if (step !== STEP.LANGUAGE || !imageFile) return
+
+    detectAbortRef.current = false
+    setIsDetecting(true)
+    setDetectedSourceLang(null)
+
+    detectImageLanguage(imageFile).then((code) => {
+      if (detectAbortRef.current) return
+      if (code) {
+        const lang = SOURCE_LANGUAGES.find((l) => l.code === code) || null
+        setDetectedSourceLang(lang)
+      }
+      setIsDetecting(false)
+    })
+
+    return () => { detectAbortRef.current = true }
+  }, [step, imageFile])
 
   const handleImageSelected = useCallback((file, preview) => {
     setImageFile(file)
     setImagePreview(preview)
   }, [])
-
-  const handleUploadNext = () => {
-    if (!imageFile) return
-    setStep(STEP.LANGUAGE)
-  }
 
   const handleLanguageConfirm = async ({ sourceLang, targetLang: tl }) => {
     setTargetLang(tl)
@@ -96,7 +110,7 @@ export default function App() {
     setTranslatedText('')
 
     try {
-      // Step 1: OCR
+      // Step 1 — OCR
       const rawText = await extractText(imageFile, sourceLang.code, (p) => setOcrProgress(p))
       setOcrProgress(100)
 
@@ -104,19 +118,18 @@ export default function App() {
         throw new Error("Aucun texte lisible dans l'image. Prenez une photo plus nette.")
       }
 
-      // Nettoyage : supprime les lignes parasites + les caractères déjà dans la langue cible
       const cleanedText = cleanOCRText(rawText, tl.code)
 
       if (!cleanedText || cleanedText.trim().length < 3) {
         throw new Error("Le texte extrait ne contient pas de contenu lisible. Essayez avec une photo du document seul.")
       }
 
-      // Step 2: Translate
+      // Step 2 — Translate
       const translated = await translateText(cleanedText, sourceLang.apiCode, tl.code, (p) => setTranslateProgress(p))
       setTranslateProgress(100)
       setTranslatedText(translated)
     } catch (err) {
-      setError(err.message || 'An unexpected error occurred. Please try again.')
+      setError(err.message || 'Une erreur inattendue est survenue. Veuillez réessayer.')
     } finally {
       setIsProcessing(false)
     }
@@ -132,16 +145,17 @@ export default function App() {
     setTranslateProgress(0)
     setIsProcessing(false)
     setError(null)
+    setDetectedSourceLang(null)
+    setIsDetecting(false)
   }
 
   return (
-    <div className="max-w-md mx-auto relative min-h-screen px-3 sm:px-0">
+    <div className="max-w-md mx-auto relative min-h-screen">
       {step === STEP.UPLOAD && (
         <UploadStep
           onImageSelected={(file, preview) => {
             handleImageSelected(file, preview)
-            // Automatically advance to language selection after image is picked
-            setTimeout(() => setStep(STEP.LANGUAGE), 300)
+            setStep(STEP.LANGUAGE)
           }}
         />
       )}
@@ -151,6 +165,8 @@ export default function App() {
           imagePreview={imagePreview}
           onConfirm={handleLanguageConfirm}
           onBack={() => setStep(STEP.UPLOAD)}
+          detectedLang={detectedSourceLang}
+          isDetecting={isDetecting}
         />
       )}
 

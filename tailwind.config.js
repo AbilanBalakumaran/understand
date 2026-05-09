@@ -5,14 +5,28 @@ export default {
     extend: {
       colors: {
         primary: {
-          50: '#EFF6FF',
-          100: '#DBEAFE',
-          500: '#3B82F6',
-          600: '#2563EB',
-          700: '#1D4ED8',
-          800: '#1E40AF',
-        }
-      }
+          50:  '#EEF2FF',
+          100: '#E0E8FF',
+          200: '#C2D0FF',
+          300: '#94ACFF',
+          400: '#6080FF',
+          500: '#2E5BFF',
+          600: '#1A44E8',
+          700: '#1230C0',
+          800: '#0C1FA0',
+          900: '#081480',
+        },
+        surface: '#F4F6FF',
+      },
+      borderRadius: {
+        '4xl': '28px',
+        '5xl': '36px',
+      },
+      boxShadow: {
+        'card':      '0 4px 24px rgba(46, 91, 255, 0.07)',
+        'card-lg':   '0 8px 40px rgba(46, 91, 255, 0.12)',
+        'blue':      '0 4px 20px rgba(46, 91, 255, 0.40)',
+      },
     }
   },
   plugins: []
