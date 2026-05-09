@@ -5,9 +5,6 @@
        appear white. A flat colour is 100 % reliable. -->
   <rect width="512" height="512" fill="#2E5BFF"/>
 
-  <!-- Subtle dark overlay at the bottom for depth -->
-  <rect x="0" y="300" width="512" height="212" fill="#0C1FA0" opacity="0.45"/>
-
   <!-- Document shadow -->
   <rect x="122" y="92" width="278" height="348" rx="22" fill="rgba(0,0,0,0.20)"/>
 
