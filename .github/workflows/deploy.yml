@@ -29,8 +29,11 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Generate PWA icons (192 + 512 PNG from SVG)
-        run: npx --yes @vite-pwa/assets-generator --preset minimal-2023 public/icon.svg
+      - name: Install sharp (SVG → PNG, no padding)
+        run: npm install --no-save sharp
+
+      - name: Generate PWA icons
+        run: node scripts/generate-icons.mjs
 
       - name: Build
         run: npm run build
