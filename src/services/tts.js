@@ -1,10 +1,8 @@
 /**
  * TTS via Web Speech API (native browser engine).
+ * Checks that the target language voice is actually available on the device
+ * before attempting playback, to avoid silent fallback to English.
  * Falls back to Google Translate TTS if speechSynthesis is unavailable.
- *
- * Web Speech API works on all modern browsers (Chrome Android, iOS Safari,
- * Firefox, Edge) with no network request, no rate limits, and no CORS issues.
- * It is not blocked by GitHub Pages or mobile carrier NAT.
  */
 
 const MAX_CHUNK = 180
@@ -13,7 +11,7 @@ function splitIntoChunks(text) {
   if (text.length <= MAX_CHUNK) return [text]
 
   const sentences = text
-    .replace(/([.!?。！？])\s+/g, '$1\n')
+    .replace(/([.!?।。！？])\s+/g, '$1\n')
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean)
@@ -63,9 +61,38 @@ function getBestVoice(lang) {
   )
 }
 
+function getLangName(bcp47) {
+  try {
+    return new Intl.DisplayNames(['fr'], { type: 'language' }).of(bcp47.split('-')[0])
+  } catch (_) {
+    return bcp47.split('-')[0]
+  }
+}
+
 function speakWithWebSpeech(text, lang, { rate = 0.9, onEnd, onError } = {}) {
   const chunks = splitIntoChunks(text)
   let index = 0
+  let voice = null
+
+  const doSpeak = () => {
+    // Check voice availability after voices are loaded
+    voice = getBestVoice(lang)
+    const voices = window.speechSynthesis.getVoices()
+
+    if (!voice && voices.length > 0) {
+      // Voices are loaded but none match this language
+      isActive = false
+      const langName = getLangName(lang)
+      onError?.(new Error(
+        `Voix "${langName}" non disponible sur votre appareil.\n` +
+        `Pour l'activer : Paramètres → Accessibilité → Synthèse vocale → ` +
+        `Moteur Google → Installer les données vocales.`
+      ))
+      return
+    }
+
+    speakNext()
+  }
 
   const speakNext = () => {
     if (!isActive) return
@@ -79,35 +106,45 @@ function speakWithWebSpeech(text, lang, { rate = 0.9, onEnd, onError } = {}) {
     currentUtterance = utter
     utter.lang = lang
     utter.rate = Math.min(Math.max(rate, 0.5), 2)
-
-    const voice = getBestVoice(lang)
     if (voice) utter.voice = voice
 
     utter.onend = speakNext
     utter.onerror = (e) => {
-      // 'canceled' and 'interrupted' are system-level events, not real errors
       if (e.error === 'canceled' || e.error === 'interrupted') return
       if (!isActive) return
       isActive = false
-      onError?.(new Error(`Erreur de synthèse vocale : ${e.error}`))
+
+      if (e.error === 'language-unavailable' || e.error === 'voice-unavailable') {
+        const langName = getLangName(lang)
+        onError?.(new Error(
+          `Voix "${langName}" non disponible sur votre appareil.\n` +
+          `Pour l'activer : Paramètres → Accessibilité → Synthèse vocale → ` +
+          `Moteur Google → Installer les données vocales.`
+        ))
+      } else {
+        onError?.(new Error(`Erreur de lecture audio (${e.error}). Réessayez.`))
+      }
     }
 
     window.speechSynthesis.speak(utter)
   }
 
-  // iOS loads voices asynchronously — wait for them before starting
+  // iOS / some Android: voices load asynchronously
   const voices = window.speechSynthesis.getVoices()
   if (voices.length === 0) {
-    window.speechSynthesis.addEventListener('voiceschanged', speakNext, { once: true })
+    window.speechSynthesis.addEventListener('voiceschanged', doSpeak, { once: true })
+    // Safety timeout: if voiceschanged never fires (some browsers), try anyway after 1s
+    setTimeout(() => {
+      if (isActive && index === 0) doSpeak()
+    }, 1000)
   } else {
-    speakNext()
+    doSpeak()
   }
 }
 
 // ─── Google TTS fallback ───────────────────────────────────────────────────
 
 const GTTS_BASE = 'https://translate.google.com/translate_tts'
-
 const LANG_OVERRIDE = {
   'fil-PH': 'tl',
   'zh-CN': 'zh-CN',
@@ -150,14 +187,14 @@ function speakWithGoogleTTS(text, lang, { rate = 0.9, onEnd, onError } = {}) {
     audio.addEventListener('error', () => {
       if (!isActive) return
       isActive = false
-      onError?.(new Error('Impossible de charger l\'audio. Vérifiez votre connexion internet.'))
+      onError?.(new Error('Impossible de charger l\'audio. Vérifiez votre connexion.'))
     }, { once: true })
 
     audio.src = buildGoogleUrl(chunk, lang)
     audio.play().catch(() => {
       if (!isActive) return
       isActive = false
-      onError?.(new Error('La lecture audio a été bloquée par le navigateur. Réessayez.'))
+      onError?.(new Error('Lecture audio bloquée par le navigateur. Réessayez.'))
     })
   }
 
@@ -204,7 +241,7 @@ export function isSpeaking() {
  * Must be called from a user gesture (tap/click) for iOS compatibility.
  *
  * @param {string} text - translated text in target language
- * @param {string} lang - BCP-47 code e.g. 'fr-FR', 'es-ES'
+ * @param {string} lang - BCP-47 code e.g. 'ta-IN', 'hi-IN', 'ar-SA'
  * @param {{ rate?: number, onEnd?: () => void, onError?: (e: Error) => void }} options
  */
 export function speak(text, lang, { rate = 0.9, onEnd, onError } = {}) {
