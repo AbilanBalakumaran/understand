@@ -1,18 +1,20 @@
 const CHUNK_SIZE = 450
-const DELAY_MS = 300
+const DELAY_MS   = 300
 
-// Lingva Translate — fallback gratuit, sans clé API
 const LINGVA_INSTANCES = [
   'https://lingva.ml',
   'https://translate.plausibility.cloud',
 ]
 
-// Codes de langues utilisant l'alphabet latin (pas besoin de vérification de script)
+/**
+ * Latin-script language codes — verifyAndFix uses a looser heuristic for these
+ * targets because we also need to catch source-language remnants.
+ */
 const LATIN_LANG_CODES = new Set([
-  'af', 'sq', 'az', 'bs', 'ca', 'hr', 'cs', 'da', 'nl', 'en', 'et',
-  'fi', 'fr', 'de', 'ht', 'hu', 'id', 'it', 'lv', 'lt', 'ms', 'no',
-  'pl', 'pt', 'ro', 'sk', 'sl', 'so', 'es', 'sw', 'sv', 'tl', 'tr',
-  'uz', 'vi', 'cy', 'yo', 'zu', 'pt-BR',
+  'af','sq','az','bs','ca','hr','cs','da','nl','en','et',
+  'fi','fr','de','ht','hu','id','it','lv','lt','ms','no',
+  'pl','pt','ro','sk','sl','so','es','sw','sv','tl','tr',
+  'uz','vi','cy','yo','zu','pt-BR',
 ])
 
 function sleep(ms) {
@@ -65,40 +67,56 @@ async function translateChunkLingva(chunk, sourceLang, targetLang) {
   for (const instance of LINGVA_INSTANCES) {
     try {
       const url = `${instance}/api/v1/${src}/${tgt}/${encodeURIComponent(chunk)}`
-      const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
+      const res = await fetch(url, { signal: AbortSignal.timeout(12000) })
       if (!res.ok) continue
       const data = await res.json()
       if (data.translation) return data.translation
-    } catch (_) { /* essayer instance suivante */ }
+    } catch (_) {}
   }
   throw new Error('Lingva indisponible sur toutes les instances')
 }
 
-// ─── Traduction d'un chunk (MyMemory → Lingva) ────────────────────────────
+// ─── Per-chunk translation with retry ─────────────────────────────────────
 
-async function translateChunk(chunk, sourceLang, targetLang) {
+async function translateChunk(chunk, sourceLang, targetLang, attempt = 0) {
   try {
-    return await translateChunkMyMemory(chunk, sourceLang, targetLang)
+    const result = await translateChunkMyMemory(chunk, sourceLang, targetLang)
+    // Sanity: if result is identical to input and > 10 chars, assume failure
+    if (result.trim() === chunk.trim() && chunk.length > 10) {
+      throw new Error('Identity translation')
+    }
+    return result
   } catch (err) {
-    if (err.message === 'QUOTA_EXCEEDED' || err.message.startsWith('MyMemory')) {
+    const isQuota = err.message === 'QUOTA_EXCEEDED'
+    const isFail  = err.message.startsWith('MyMemory') || err.message === 'Identity translation'
+    if (isQuota || isFail) {
       return await translateChunkLingva(chunk, sourceLang, targetLang)
+    }
+    // Retry once on network errors
+    if (attempt === 0) {
+      await sleep(500)
+      return translateChunk(chunk, sourceLang, targetLang, 1)
     }
     throw err
   }
 }
 
-// ─── Vérification post-traduction ─────────────────────────────────────────
+// ─── Post-translation verification ────────────────────────────────────────
 
 /**
- * Pour les langues à script non-latin (Tamil, Hindi, Arabe…), vérifie que
- * le texte traduit ne contient pas de phrases encore en français/anglais.
- * Re-traduit automatiquement les parties non traduites.
+ * Ensures the translated text is fully in the target language.
+ *
+ * For non-Latin targets (Tamil, Hindi, Arabic …): re-translates any segment
+ * that still contains > 35 % Latin letters.
+ *
+ * For Latin targets: re-translates any segment that appears to be identical
+ * to the source (common when MyMemory gives back an untranslated chunk).
  */
-async function verifyAndFix(text, targetLang) {
+async function verifyAndFix(text, sourceLang, targetLang) {
   const base = targetLang.split('-')[0]
-  if (LATIN_LANG_CODES.has(base) || LATIN_LANG_CODES.has(targetLang)) return text
+  const isLatinTarget = LATIN_LANG_CODES.has(base) || LATIN_LANG_CODES.has(targetLang)
+  const srcBase = sourceLang?.split('-')[0]?.toLowerCase()
 
-  // Découper en lignes/paragraphes et vérifier chacun
   const segments = text.split('\n')
   const fixed = []
 
@@ -106,17 +124,46 @@ async function verifyAndFix(text, targetLang) {
     const trimmed = seg.trim()
     if (!trimmed) { fixed.push(seg); continue }
 
-    const latinLetters = (trimmed.match(/[a-zA-ZÀ-ÿ]/g) || []).length
-    const totalLetters = (trimmed.match(/\p{L}/gu) || []).length
+    let needsRetranslation = false
 
-    // Si plus de 50% des lettres sont latines → ce segment n'est pas traduit
-    if (totalLetters > 0 && latinLetters / totalLetters > 0.50) {
+    if (!isLatinTarget) {
+      // For non-Latin targets: flag segments with too many Latin letters
+      const latinLetters = (trimmed.match(/[a-zA-ZÀ-ÿ]/g) || []).length
+      const totalLetters = (trimmed.match(/\p{L}/gu) || []).length
+      // Lowered threshold: 35 % (was 50 %) — catches more remnants
+      if (totalLetters > 0 && latinLetters / totalLetters > 0.35) {
+        needsRetranslation = true
+      }
+    } else if (srcBase) {
+      // For Latin targets: check if the segment looks like it was NOT translated
+      // by scoring it against source-language stop words
+      const words = trimmed.toLowerCase().match(/\b[a-z]{2,}\b/g) || []
+      if (words.length >= 4) {
+        const SOURCE_STOPS = {
+          fr: ['le','la','les','un','une','du','des','et','en','est','pas','qui','que','au'],
+          en: ['the','is','are','and','of','in','a','that','it','for','on','with'],
+          es: ['el','los','las','del','con','por','una','como','pero','que','ser'],
+          de: ['der','die','das','ein','eine','und','ist','zu','mit','auf','für'],
+          it: ['il','lo','gli','una','dei','con','per','sono','come','anche'],
+          pt: ['uma','dos','das','com','por','são','seu','sua','como','mas'],
+        }
+        const stops = SOURCE_STOPS[srcBase] || []
+        if (stops.length > 0) {
+          const wordSet = new Set(words)
+          const sourceScore = stops.filter(w => wordSet.has(w)).length
+          // If the translated segment strongly matches the SOURCE language → flag it
+          if (sourceScore >= 3) needsRetranslation = true
+        }
+      }
+    }
+
+    if (needsRetranslation) {
       try {
-        // Re-traduit avec Lingva en détection automatique de la langue source
         const retranslated = await translateChunkLingva(trimmed, 'auto', targetLang)
-        fixed.push(retranslated)
+        // Only use retranslated if it actually changed
+        fixed.push(retranslated !== trimmed ? retranslated : seg)
       } catch {
-        fixed.push(seg) // Garder l'original si ça échoue
+        fixed.push(seg)
       }
     } else {
       fixed.push(seg)
@@ -126,13 +173,16 @@ async function verifyAndFix(text, targetLang) {
   return fixed.join('\n').trim()
 }
 
-// ─── Export principal ──────────────────────────────────────────────────────
+// ─── Public API ────────────────────────────────────────────────────────────
 
 /**
- * Traduit le texte de sourceLang vers targetLang.
- * - Primaire : MyMemory API
- * - Fallback : Lingva Translate
- * - Vérification : re-traduit les portions non traduites pour les scripts non-latins
+ * Translates text from sourceLang to targetLang.
+ * Primary: MyMemory  |  Fallback: Lingva  |  Verification: verifyAndFix
+ *
+ * @param {string}   text
+ * @param {string}   sourceLang  - BCP-47 / MyMemory code (e.g. 'fr', 'en')
+ * @param {string}   targetLang  - BCP-47 code (e.g. 'ta', 'hi', 'ar')
+ * @param {Function} onProgress  - callback 0-100 (translation phase only)
  */
 export async function translateText(text, sourceLang, targetLang, onProgress) {
   if (!text?.trim()) return ''
@@ -141,7 +191,7 @@ export async function translateText(text, sourceLang, targetLang, onProgress) {
   const tgtBase = targetLang.split('-')[0].toLowerCase()
   if (srcBase === tgtBase) return text
 
-  const chunks = splitIntoChunks(text)
+  const chunks     = splitIntoChunks(text)
   const translated = []
 
   for (let i = 0; i < chunks.length; i++) {
@@ -153,6 +203,6 @@ export async function translateText(text, sourceLang, targetLang, onProgress) {
 
   const joined = translated.join(' ')
 
-  // Vérification : s'assure que la sortie est entièrement dans la langue cible
-  return await verifyAndFix(joined, targetLang)
+  // Post-translation verification pass
+  return await verifyAndFix(joined, sourceLang, targetLang)
 }

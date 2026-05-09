@@ -1,5 +1,42 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
-  <rect width="192" height="192" rx="40" fill="#2563EB"/>
-  <text x="96" y="125" font-size="100" text-anchor="middle" font-family="sans-serif">📄</text>
-  <text x="96" y="170" font-size="28" text-anchor="middle" font-family="sans-serif" font-weight="bold" fill="white">🎧</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4B6EFF"/>
+      <stop offset="100%" stop-color="#0C1FA0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect width="512" height="512" rx="100" fill="url(#bg)"/>
+
+  <!-- Document card shadow -->
+  <rect x="160" y="133" width="210" height="268" rx="18" fill="rgba(0,0,0,0.18)"/>
+
+  <!-- Document card body -->
+  <rect x="154" y="124" width="210" height="268" rx="18" fill="white"/>
+
+  <!-- Folded corner cut -->
+  <path d="M314 124 L364 174 H314 V124 Z" fill="rgba(46,91,255,0.10)"/>
+  <!-- Fold crease line -->
+  <path d="M314 124 L364 174" fill="none" stroke="rgba(46,91,255,0.20)" stroke-width="2"/>
+
+  <!-- Text lines -->
+  <rect x="184" y="208" width="148" height="11" rx="5.5" fill="#C2D0FF"/>
+  <rect x="184" y="232" width="124" height="11" rx="5.5" fill="#C2D0FF"/>
+  <rect x="184" y="256" width="138" height="11" rx="5.5" fill="#C2D0FF"/>
+  <rect x="184" y="280" width="104" height="11" rx="5.5" fill="#C2D0FF"/>
+  <rect x="184" y="304" width="118" height="11" rx="5.5" fill="#C2D0FF"/>
+
+  <!-- Audio badge circle -->
+  <circle cx="318" cy="356" r="48" fill="#2E5BFF"/>
+  <circle cx="318" cy="356" r="48" fill="none" stroke="white" stroke-width="5" opacity="0.25"/>
+
+  <!-- Headphones icon (paths, no emoji) -->
+  <!-- Arc over head -->
+  <path d="M295 354 C295 339 306 328 318 328 C330 328 341 339 341 354"
+        fill="none" stroke="white" stroke-width="7" stroke-linecap="round"/>
+  <!-- Left ear pad -->
+  <rect x="286" y="352" width="12" height="18" rx="6" fill="white"/>
+  <!-- Right ear pad -->
+  <rect x="334" y="352" width="12" height="18" rx="6" fill="white"/>
 </svg>

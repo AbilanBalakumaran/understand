@@ -1,6 +1,21 @@
 import { useState, useMemo, useEffect } from 'react'
 import { TARGET_LANGUAGES, SOURCE_LANGUAGES } from '../data/languages'
 
+const STORAGE_KEY = 'understand_lastTargetLang'
+
+function loadLastTarget() {
+  try {
+    const code = localStorage.getItem(STORAGE_KEY)
+    return code ? TARGET_LANGUAGES.find((l) => l.code === code) || null : null
+  } catch {
+    return null
+  }
+}
+
+function saveLastTarget(lang) {
+  try { localStorage.setItem(STORAGE_KEY, lang.code) } catch {}
+}
+
 export default function LanguageSelect({
   imagePreview,
   onConfirm,
@@ -9,11 +24,11 @@ export default function LanguageSelect({
   isDetecting,    // boolean
 }) {
   const [search, setSearch]             = useState('')
-  const [selectedTarget, setSelectedTarget] = useState(null)
+  const [selectedTarget, setSelectedTarget] = useState(() => loadLastTarget())
   const [selectedSource, setSelectedSource] = useState(SOURCE_LANGUAGES[1]) // French default
   const [showSourcePicker, setShowSourcePicker] = useState(false)
 
-  // Auto-select when detection finishes
+  // Auto-select detected source language when detection finishes
   useEffect(() => {
     if (detectedLang && !isDetecting) {
       setSelectedSource(detectedLang)
@@ -27,6 +42,11 @@ export default function LanguageSelect({
       (l) => l.name.toLowerCase().includes(q) || l.code.toLowerCase().includes(q)
     )
   }, [search])
+
+  const handleSelectTarget = (lang) => {
+    setSelectedTarget(lang)
+    saveLastTarget(lang)
+  }
 
   const handleConfirm = () => {
     if (!selectedTarget) return
@@ -64,7 +84,7 @@ export default function LanguageSelect({
             Langue du document
           </p>
 
-          {/* Detection banner */}
+          {/* Detection spinner */}
           {isDetecting && (
             <div className="flex items-center gap-3 bg-primary-50 rounded-2xl px-4 py-3.5 mb-2.5 border border-primary-100">
               <svg className="w-4 h-4 text-primary-500 spin-slow shrink-0" viewBox="0 0 24 24" fill="none">
@@ -75,6 +95,7 @@ export default function LanguageSelect({
             </div>
           )}
 
+          {/* Auto-detected badge */}
           {detectedLang && !isDetecting && (
             <div className="flex items-center gap-2 mb-2.5 px-0.5">
               <span className="flex items-center gap-1.5 bg-green-50 text-green-700 text-xs font-semibold px-2.5 py-1 rounded-full border border-green-200">
@@ -87,7 +108,7 @@ export default function LanguageSelect({
             </div>
           )}
 
-          {/* Source selector button */}
+          {/* Source selector */}
           <button
             onClick={() => setShowSourcePicker(!showSourcePicker)}
             className="flex items-center gap-3 w-full bg-gray-50 hover:bg-gray-100 active:bg-gray-200 rounded-2xl px-4 py-3.5 border border-gray-200 transition-colors"
@@ -105,7 +126,6 @@ export default function LanguageSelect({
             </svg>
           </button>
 
-          {/* Source picker dropdown */}
           {showSourcePicker && (
             <div className="mt-2 bg-white border border-gray-200 rounded-2xl shadow-card-lg overflow-hidden">
               {SOURCE_LANGUAGES.map((lang) => (
@@ -134,14 +154,23 @@ export default function LanguageSelect({
 
         {/* ── Target language ── */}
         <div>
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2.5">
-            Votre langue — l'audio sera dans cette langue
-          </p>
+          <div className="flex items-center justify-between mb-2.5">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+              Votre langue — l'audio sera dans cette langue
+            </p>
+            {selectedTarget && (
+              <span className="text-xs text-primary-600 font-semibold">
+                {selectedTarget.flag} Mémorisée
+              </span>
+            )}
+          </div>
 
           {/* Search */}
           <div className="relative mb-4">
-            <svg className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            <svg className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+              fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <input
               type="text"
@@ -159,7 +188,7 @@ export default function LanguageSelect({
               return (
                 <button
                   key={lang.code}
-                  onClick={() => setSelectedTarget(lang)}
+                  onClick={() => handleSelectTarget(lang)}
                   className={`
                     flex flex-col items-center gap-1.5 rounded-2xl p-3 transition-all
                     ${isSelected

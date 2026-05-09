@@ -1,15 +1,17 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import UploadStep from './components/UploadStep'
+import UploadStep     from './components/UploadStep'
 import LanguageSelect from './components/LanguageSelect'
-import AudioPlayer from './components/AudioPlayer'
+import AudioPlayer    from './components/AudioPlayer'
+import SplashScreen   from './components/SplashScreen'
 import { extractText, detectImageLanguage } from './services/ocr'
 import { translateText } from './services/translate'
+import { requestNotifPermission, sendNotification } from './services/notifications'
 import { SOURCE_LANGUAGES } from './data/languages'
 
 const STEP = { UPLOAD: 0, LANGUAGE: 1, AUDIO: 2 }
 
 /**
- * Unicode ranges per script — used to strip target-script noise from OCR output.
+ * Unicode ranges per script — used to strip target-script noise from OCR text.
  */
 const TARGET_SCRIPT_REGEX = {
   ta: /[஀-௿]/g,
@@ -40,8 +42,7 @@ function cleanOCRText(text, targetLangCode) {
     ? text.replace(new RegExp(scriptRegex.source, 'g'), '')
     : text
 
-  const lines = processed.split('\n').map((l) => l.trim()).filter(Boolean)
-
+  const lines   = processed.split('\n').map((l) => l.trim()).filter(Boolean)
   const cleaned = lines.filter((line) => {
     const letters = (line.match(/\p{L}/gu) || [])
     if (letters.length < 4) return false
@@ -55,17 +56,25 @@ function cleanOCRText(text, targetLangCode) {
 }
 
 export default function App() {
-  const [step, setStep]                     = useState(STEP.UPLOAD)
-  const [imageFile, setImageFile]           = useState(null)
-  const [imagePreview, setImagePreview]     = useState(null)
-  const [targetLang, setTargetLang]         = useState(null)
-  const [translatedText, setTranslatedText] = useState('')
-  const [ocrProgress, setOcrProgress]       = useState(0)
-  const [translateProgress, setTranslateProgress] = useState(0)
-  const [isProcessing, setIsProcessing]     = useState(false)
-  const [error, setError]                   = useState(null)
+  // ── Splash ──────────────────────────────────────────────────────
+  const [splashDone, setSplashDone]             = useState(false)
 
-  // Auto language detection
+  // ── Navigation ──────────────────────────────────────────────────
+  const [step, setStep]                         = useState(STEP.UPLOAD)
+
+  // ── Image ───────────────────────────────────────────────────────
+  const [imageFile, setImageFile]               = useState(null)
+  const [imagePreview, setImagePreview]         = useState(null)
+
+  // ── Processing ──────────────────────────────────────────────────
+  const [targetLang, setTargetLang]             = useState(null)
+  const [translatedText, setTranslatedText]     = useState('')
+  const [ocrProgress, setOcrProgress]           = useState(0)
+  const [translateProgress, setTranslateProgress] = useState(0)
+  const [isProcessing, setIsProcessing]         = useState(false)
+  const [error, setError]                       = useState(null)
+
+  // ── Language detection ──────────────────────────────────────────
   const [detectedSourceLang, setDetectedSourceLang] = useState(null)
   const [isDetecting, setIsDetecting]               = useState(false)
   const detectAbortRef                              = useRef(false)
@@ -75,7 +84,7 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [step])
 
-  // Run OSD detection when entering LanguageSelect
+  // Run detection when entering LanguageSelect
   useEffect(() => {
     if (step !== STEP.LANGUAGE || !imageFile) return
 
@@ -109,6 +118,10 @@ export default function App() {
     setTranslateProgress(0)
     setTranslatedText('')
 
+    // Ask for notification permission at the start of processing
+    // (must be triggered by a user gesture — this callback is called from a button click)
+    requestNotifPermission()
+
     try {
       // Step 1 — OCR
       const rawText = await extractText(imageFile, sourceLang.code, (p) => setOcrProgress(p))
@@ -128,6 +141,12 @@ export default function App() {
       const translated = await translateText(cleanedText, sourceLang.apiCode, tl.code, (p) => setTranslateProgress(p))
       setTranslateProgress(100)
       setTranslatedText(translated)
+
+      // Notify the user that their document is ready (even if the tab is in background)
+      sendNotification(
+        'Understand — Audio prêt ! 🎧',
+        `Votre document a été traduit en ${tl.name}. Touchez pour écouter.`
+      )
     } catch (err) {
       setError(err.message || 'Une erreur inattendue est survenue. Veuillez réessayer.')
     } finally {
@@ -150,39 +169,44 @@ export default function App() {
   }
 
   return (
-    <div className="max-w-md mx-auto relative min-h-screen">
-      {step === STEP.UPLOAD && (
-        <UploadStep
-          onImageSelected={(file, preview) => {
-            handleImageSelected(file, preview)
-            setStep(STEP.LANGUAGE)
-          }}
-        />
-      )}
+    <>
+      {/* Splash screen — shown once on launch */}
+      {!splashDone && <SplashScreen onDone={() => setSplashDone(true)} />}
 
-      {step === STEP.LANGUAGE && (
-        <LanguageSelect
-          imagePreview={imagePreview}
-          onConfirm={handleLanguageConfirm}
-          onBack={() => setStep(STEP.UPLOAD)}
-          detectedLang={detectedSourceLang}
-          isDetecting={isDetecting}
-        />
-      )}
+      <div className="max-w-md mx-auto relative min-h-screen">
+        {step === STEP.UPLOAD && (
+          <UploadStep
+            onImageSelected={(file, preview) => {
+              handleImageSelected(file, preview)
+              setStep(STEP.LANGUAGE)
+            }}
+          />
+        )}
 
-      {step === STEP.AUDIO && targetLang && (
-        <AudioPlayer
-          imagePreview={imagePreview}
-          targetLang={targetLang}
-          translatedText={translatedText}
-          ocrProgress={ocrProgress}
-          translateProgress={translateProgress}
-          isProcessing={isProcessing}
-          error={error}
-          onStartOver={handleStartOver}
-          onBack={() => setStep(STEP.LANGUAGE)}
-        />
-      )}
-    </div>
+        {step === STEP.LANGUAGE && (
+          <LanguageSelect
+            imagePreview={imagePreview}
+            onConfirm={handleLanguageConfirm}
+            onBack={() => setStep(STEP.UPLOAD)}
+            detectedLang={detectedSourceLang}
+            isDetecting={isDetecting}
+          />
+        )}
+
+        {step === STEP.AUDIO && targetLang && (
+          <AudioPlayer
+            imagePreview={imagePreview}
+            targetLang={targetLang}
+            translatedText={translatedText}
+            ocrProgress={ocrProgress}
+            translateProgress={translateProgress}
+            isProcessing={isProcessing}
+            error={error}
+            onStartOver={handleStartOver}
+            onBack={() => setStep(STEP.LANGUAGE)}
+          />
+        )}
+      </div>
+    </>
   )
 }
