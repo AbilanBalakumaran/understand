@@ -18,6 +18,7 @@ export default function AudioPlayer({
   const [paused, setPaused] = useState(false)
   const [speedIndex, setSpeedIndex] = useState(2) // default 1.0x
   const [copied, setCopied] = useState(false)
+  const [ttsError, setTtsError] = useState(null)
   const isReady = !isProcessing && !error && translatedText
 
   // Cleanup on unmount
@@ -27,6 +28,7 @@ export default function AudioPlayer({
 
   const handlePlay = () => {
     if (!translatedText) return
+    setTtsError(null)
     const rate = SPEEDS[speedIndex]
     speak(translatedText, targetLang.tts, {
       rate,
@@ -34,7 +36,7 @@ export default function AudioPlayer({
       onError: (err) => {
         setPlaying(false)
         setPaused(false)
-        console.error('TTS error:', err)
+        setTtsError(err.message)
       }
     })
     setPlaying(true)
@@ -217,6 +219,14 @@ export default function AudioPlayer({
                 {SPEEDS[speedIndex]}x speed
               </button>
             </div>
+
+            {/* TTS error */}
+            {ttsError && (
+              <div className="mt-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-start gap-2">
+                <span className="text-base mt-0.5">⚠️</span>
+                <p className="text-red-600 text-sm">{ttsError}</p>
+              </div>
+            )}
 
             {/* Translated text */}
             <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">

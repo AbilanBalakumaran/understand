@@ -1,27 +1,13 @@
 /**
- * TTS via Google Translate (internet-based).
- * Works on all devices without any installation.
- * referrerPolicy='no-referrer' prevents GitHub Pages from being blocked by Google.
+ * TTS via Web Speech API (native browser engine).
+ * Falls back to Google Translate TTS if speechSynthesis is unavailable.
+ *
+ * Web Speech API works on all modern browsers (Chrome Android, iOS Safari,
+ * Firefox, Edge) with no network request, no rate limits, and no CORS issues.
+ * It is not blocked by GitHub Pages or mobile carrier NAT.
  */
 
-const GTTS_BASE = 'https://translate.google.com/translate_tts'
-const MAX_CHUNK = 180 // Google TTS hard limit ~200 chars
-
-// BCP-47 → Google TTS language code
-const LANG_OVERRIDE = {
-  'fil-PH': 'tl',
-  'zh-CN': 'zh-CN',
-  'zh-TW': 'zh-TW',
-  'pt-BR': 'pt-BR',
-}
-
-function toGTTSLang(bcp47) {
-  return LANG_OVERRIDE[bcp47] ?? bcp47.split('-')[0]
-}
-
-function buildUrl(text, lang) {
-  return `${GTTS_BASE}?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${toGTTSLang(lang)}&client=tw-ob`
-}
+const MAX_CHUNK = 180
 
 function splitIntoChunks(text) {
   if (text.length <= MAX_CHUNK) return [text]
@@ -61,44 +47,87 @@ function splitIntoChunks(text) {
   return chunks.length ? chunks : [text.slice(0, MAX_CHUNK)]
 }
 
-let currentAudio = null
-let isActive = false
+// ─── Web Speech API ────────────────────────────────────────────────────────
 
-export function stopSpeech() {
-  isActive = false
-  if (currentAudio) {
-    currentAudio.pause()
-    currentAudio.src = ''
-    currentAudio = null
+let isActive = false
+let currentUtterance = null
+
+function getBestVoice(lang) {
+  const voices = window.speechSynthesis.getVoices()
+  if (!voices.length) return null
+  const base = lang.split('-')[0].toLowerCase()
+  return (
+    voices.find((v) => v.lang.toLowerCase() === lang.toLowerCase()) ||
+    voices.find((v) => v.lang.toLowerCase().startsWith(base)) ||
+    null
+  )
+}
+
+function speakWithWebSpeech(text, lang, { rate = 0.9, onEnd, onError } = {}) {
+  const chunks = splitIntoChunks(text)
+  let index = 0
+
+  const speakNext = () => {
+    if (!isActive) return
+    if (index >= chunks.length) {
+      isActive = false
+      onEnd?.()
+      return
+    }
+
+    const utter = new SpeechSynthesisUtterance(chunks[index++])
+    currentUtterance = utter
+    utter.lang = lang
+    utter.rate = Math.min(Math.max(rate, 0.5), 2)
+
+    const voice = getBestVoice(lang)
+    if (voice) utter.voice = voice
+
+    utter.onend = speakNext
+    utter.onerror = (e) => {
+      // 'canceled' and 'interrupted' are system-level events, not real errors
+      if (e.error === 'canceled' || e.error === 'interrupted') return
+      if (!isActive) return
+      isActive = false
+      onError?.(new Error(`Erreur de synthèse vocale : ${e.error}`))
+    }
+
+    window.speechSynthesis.speak(utter)
+  }
+
+  // iOS loads voices asynchronously — wait for them before starting
+  const voices = window.speechSynthesis.getVoices()
+  if (voices.length === 0) {
+    window.speechSynthesis.addEventListener('voiceschanged', speakNext, { once: true })
+  } else {
+    speakNext()
   }
 }
 
-export function pauseSpeech() {
-  currentAudio?.pause()
+// ─── Google TTS fallback ───────────────────────────────────────────────────
+
+const GTTS_BASE = 'https://translate.google.com/translate_tts'
+
+const LANG_OVERRIDE = {
+  'fil-PH': 'tl',
+  'zh-CN': 'zh-CN',
+  'zh-TW': 'zh-TW',
+  'pt-BR': 'pt-BR',
 }
 
-export function resumeSpeech() {
-  currentAudio?.play()
+function toGTTSLang(bcp47) {
+  return LANG_OVERRIDE[bcp47] ?? bcp47.split('-')[0]
 }
 
-export function isSpeaking() {
-  return isActive
+function buildGoogleUrl(text, lang) {
+  return `${GTTS_BASE}?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${toGTTSLang(lang)}&client=tw-ob`
 }
 
-/**
- * Speak translated text in the given language via Google TTS.
- * Must be called from a user gesture (tap/click) for iOS compatibility.
- *
- * @param {string} text - already-translated text in target language
- * @param {string} lang - BCP-47 code e.g. 'ta-IN', 'fr-FR'
- * @param {{ rate?: number, onEnd?: () => void, onError?: (e: Error) => void }} options
- */
-export function speak(text, lang, { rate = 0.9, onEnd, onError } = {}) {
-  stopSpeech()
+let currentAudio = null
 
+function speakWithGoogleTTS(text, lang, { rate = 0.9, onEnd, onError } = {}) {
   const chunks = splitIntoChunks(text)
   let index = 0
-  isActive = true
 
   const playNext = () => {
     if (!isActive) return
@@ -111,8 +140,6 @@ export function speak(text, lang, { rate = 0.9, onEnd, onError } = {}) {
     const chunk = chunks[index++]
     const audio = new Audio()
     currentAudio = audio
-
-    // Prevent GitHub Pages referer from being blocked by Google
     audio.referrerPolicy = 'no-referrer'
 
     try {
@@ -126,7 +153,7 @@ export function speak(text, lang, { rate = 0.9, onEnd, onError } = {}) {
       onError?.(new Error('Impossible de charger l\'audio. Vérifiez votre connexion internet.'))
     }, { once: true })
 
-    audio.src = buildUrl(chunk, lang)
+    audio.src = buildGoogleUrl(chunk, lang)
     audio.play().catch(() => {
       if (!isActive) return
       isActive = false
@@ -135,4 +162,58 @@ export function speak(text, lang, { rate = 0.9, onEnd, onError } = {}) {
   }
 
   playNext()
+}
+
+// ─── Public API ────────────────────────────────────────────────────────────
+
+export function stopSpeech() {
+  isActive = false
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel()
+    currentUtterance = null
+  }
+  if (currentAudio) {
+    currentAudio.pause()
+    currentAudio.src = ''
+    currentAudio = null
+  }
+}
+
+export function pauseSpeech() {
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.pause()
+  } else {
+    currentAudio?.pause()
+  }
+}
+
+export function resumeSpeech() {
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.resume()
+  } else {
+    currentAudio?.play()
+  }
+}
+
+export function isSpeaking() {
+  return isActive
+}
+
+/**
+ * Speak translated text in the given language.
+ * Must be called from a user gesture (tap/click) for iOS compatibility.
+ *
+ * @param {string} text - translated text in target language
+ * @param {string} lang - BCP-47 code e.g. 'fr-FR', 'es-ES'
+ * @param {{ rate?: number, onEnd?: () => void, onError?: (e: Error) => void }} options
+ */
+export function speak(text, lang, { rate = 0.9, onEnd, onError } = {}) {
+  stopSpeech()
+  isActive = true
+
+  if ('speechSynthesis' in window) {
+    speakWithWebSpeech(text, lang, { rate, onEnd, onError })
+  } else {
+    speakWithGoogleTTS(text, lang, { rate, onEnd, onError })
+  }
 }
