@@ -6,13 +6,12 @@
 
 const MAX_CHUNK = 180
 
-// Instances publiques Lingva (TTS via leurs serveurs → pas de blocage GitHub Pages)
 const LINGVA_INSTANCES = [
   'https://lingva.ml',
   'https://translate.plausibility.cloud',
 ]
 
-function splitIntoChunks(text) {
+export function splitIntoChunks(text) {
   if (text.length <= MAX_CHUNK) return [text]
 
   const sentences = text
@@ -50,7 +49,7 @@ function splitIntoChunks(text) {
   return chunks.length ? chunks : [text.slice(0, MAX_CHUNK)]
 }
 
-// ─── Lingva TTS (internet, aucune voix locale requise) ────────────────────
+// ─── Lingva TTS ────────────────────────────────────────────────────────────
 
 let isActive = false
 let currentAudio = null
@@ -61,13 +60,8 @@ function cleanupUrls() {
   objectUrls = []
 }
 
-/**
- * Télécharge l'audio d'un chunk via Lingva.
- * Retourne un object URL audio, ou null si toutes les instances échouent.
- */
 async function fetchLingvaAudio(text, langBcp47) {
-  const lang = langBcp47.split('-')[0] // ta-IN → ta
-
+  const lang = langBcp47.split('-')[0]
   for (const instance of LINGVA_INSTANCES) {
     try {
       const url = `${instance}/api/v1/audio/${lang}/${encodeURIComponent(text)}`
@@ -75,20 +69,17 @@ async function fetchLingvaAudio(text, langBcp47) {
       if (!res.ok) continue
       const data = await res.json()
       if (!Array.isArray(data.audio) || !data.audio.length) continue
-
       const bytes = new Uint8Array(data.audio)
       const blob = new Blob([bytes], { type: 'audio/mpeg' })
       const objectUrl = URL.createObjectURL(blob)
       objectUrls.push(objectUrl)
       return objectUrl
-    } catch (_) {
-      // Essayer la prochaine instance
-    }
+    } catch (_) {}
   }
   return null
 }
 
-function speakWithLingva(text, lang, { rate = 0.9, onEnd, onError } = {}) {
+function speakWithLingva(text, lang, { rate = 0.9, onEnd, onError, onChunkStart } = {}) {
   const chunks = splitIntoChunks(text)
   let index = 0
 
@@ -101,12 +92,14 @@ function speakWithLingva(text, lang, { rate = 0.9, onEnd, onError } = {}) {
       return
     }
 
+    const chunkIndex = index
     const chunk = chunks[index++]
+    onChunkStart?.(chunkIndex)         // ← notifie quel chunk est en cours
+
     const audioUrl = await fetchLingvaAudio(chunk, lang)
 
     if (!audioUrl) {
-      // Lingva indisponible — fallback Web Speech API
-      speakWithWebSpeech(text, lang, { rate, onEnd, onError })
+      speakWithWebSpeech(text, lang, { rate, onEnd, onError, onChunkStart })
       return
     }
 
@@ -133,7 +126,7 @@ function speakWithLingva(text, lang, { rate = 0.9, onEnd, onError } = {}) {
   playNext()
 }
 
-// ─── Web Speech API (fallback si Lingva est down) ─────────────────────────
+// ─── Web Speech API (fallback) ─────────────────────────────────────────────
 
 let currentUtterance = null
 
@@ -148,7 +141,7 @@ function getBestVoice(lang) {
   )
 }
 
-function speakWithWebSpeech(text, lang, { rate = 0.9, onEnd, onError } = {}) {
+function speakWithWebSpeech(text, lang, { rate = 0.9, onEnd, onError, onChunkStart } = {}) {
   if (!('speechSynthesis' in window)) {
     onError?.(new Error('Synthèse vocale non supportée. Vérifiez votre connexion internet.'))
     return
@@ -161,12 +154,11 @@ function speakWithWebSpeech(text, lang, { rate = 0.9, onEnd, onError } = {}) {
   const doSpeak = () => {
     voice = getBestVoice(lang)
     const voices = window.speechSynthesis.getVoices()
-
     if (!voice && voices.length > 0) {
       isActive = false
       onError?.(new Error(
-        `Voix "${lang.split('-')[0]}" non installée sur l'appareil et Lingva indisponible.\n` +
-        `Réessayez dans quelques instants ou vérifiez votre connexion internet.`
+        `Voix "${lang.split('-')[0]}" non installée et Lingva indisponible.\n` +
+        `Réessayez dans quelques instants.`
       ))
       return
     }
@@ -177,8 +169,10 @@ function speakWithWebSpeech(text, lang, { rate = 0.9, onEnd, onError } = {}) {
     if (!isActive) return
     if (index >= chunks.length) { isActive = false; onEnd?.(); return }
 
+    const chunkIndex = index
     const utter = new SpeechSynthesisUtterance(chunks[index++])
     currentUtterance = utter
+    onChunkStart?.(chunkIndex)         // ← notifie quel chunk est en cours
     utter.lang = lang
     utter.rate = Math.min(Math.max(rate, 0.5), 2)
     if (voice) utter.voice = voice
@@ -236,12 +230,13 @@ export function isSpeaking() {
  * Lit le texte traduit dans la langue cible via internet (Lingva TTS).
  * Doit être appelé depuis un geste utilisateur (tap/click) pour iOS.
  *
- * @param {string} text - texte traduit dans la langue cible
- * @param {string} lang - code BCP-47 ex: 'ta-IN', 'hi-IN', 'ar-SA', 'fr-FR'
- * @param {{ rate?: number, onEnd?: () => void, onError?: (e: Error) => void }} options
+ * @param {string} text
+ * @param {string} lang - BCP-47 ex: 'ta-IN', 'fr-FR'
+ * @param {{ rate?, onEnd?, onError?, onChunkStart? }} options
+ *   onChunkStart(index) appelé au début de chaque chunk lu
  */
-export function speak(text, lang, { rate = 0.9, onEnd, onError } = {}) {
+export function speak(text, lang, { rate = 0.9, onEnd, onError, onChunkStart } = {}) {
   stopSpeech()
   isActive = true
-  speakWithLingva(text, lang, { rate, onEnd, onError })
+  speakWithLingva(text, lang, { rate, onEnd, onError, onChunkStart })
 }
