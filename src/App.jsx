@@ -8,29 +8,57 @@ import { translateText } from './services/translate'
 const STEP = { UPLOAD: 0, LANGUAGE: 1, AUDIO: 2 }
 
 /**
- * Nettoie le texte brut OCR en supprimant les lignes parasites :
- * - Éléments d'interface (barres de statut, boutons, icônes)
- * - Lignes trop courtes ou composées de symboles
- * - Horodatages et pourcentages de batterie
+ * Plages Unicode pour chaque script non-latin.
+ * Permet de supprimer du texte source les caractères appartenant déjà
+ * à la langue cible (éléments d'interface, fragments déjà traduits).
  */
-function cleanOCRText(text) {
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+const TARGET_SCRIPT_REGEX = {
+  ta: /[஀-௿]/g,          // Tamil
+  te: /[ఀ-౿]/g,          // Telugu
+  kn: /[ಀ-೿]/g,          // Kannada
+  ml: /[ഀ-ൿ]/g,          // Malayalam
+  si: /[඀-෿]/g,          // Sinhala
+  hi: /[ऀ-ॿ]/g,          // Devanagari (Hindi, Marathi, Nepali)
+  mr: /[ऀ-ॿ]/g,
+  ne: /[ऀ-ॿ]/g,
+  ar: /[؀-ۿݐ-ݿ]/g, // Arabe
+  ur: /[؀-ۿݐ-ݿ]/g,
+  fa: /[؀-ۿݐ-ݿ]/g,
+  'zh-CN': /[一-鿿㐀-䶿]/g, // Chinois
+  'zh-TW': /[一-鿿㐀-䶿]/g,
+  ja: /[぀-ヿ一-鿿]/g,     // Japonais
+  ko: /[가-힯]/g,          // Coréen
+  ru: /[Ѐ-ӿ]/g,          // Cyrillique
+  uk: /[Ѐ-ӿ]/g,
+  ka: /[Ⴀ-ჿ]/g,          // Géorgien
+  hy: /[԰-֏]/g,          // Arménien
+  am: /[ሀ-፿]/g,          // Éthiopien
+}
+
+/**
+ * Nettoie le texte OCR avant traduction :
+ * 1. Supprime les caractères appartenant déjà au script cible (bruit d'interface)
+ * 2. Filtre les lignes parasites (symboles, horodatages, trop courtes)
+ */
+function cleanOCRText(text, targetLangCode) {
+  // Étape 1 : supprimer les caractères du script cible présents dans le source
+  const scriptRegex = TARGET_SCRIPT_REGEX[targetLangCode]
+  let processed = scriptRegex
+    ? text.replace(new RegExp(scriptRegex.source, 'g'), '')
+    : text
+
+  // Étape 2 : filtrer les lignes parasites
+  const lines = processed.split('\n').map((l) => l.trim()).filter(Boolean)
 
   const cleaned = lines.filter((line) => {
-    // Supprimer les lignes avec trop peu de lettres réelles
     const letters = (line.match(/\p{L}/gu) || [])
     if (letters.length < 4) return false
-
-    // Supprimer les lignes commençant par des symboles d'interface (<, >, [, ", etc.)
-    if (/^[<>\[\]{}/\\|=+*&#@~`"']+/.test(line)) return false
-
-    // Supprimer les lignes d'horodatage (ex: "12:21" au début)
+    // Lignes commençant par des symboles d'interface
+    if (/^[“”‘’"'<>\[\]{}/\\|=+*&#@~`]+/.test(line)) return false
+    // Horodatages de barre de statut
     if (/^\d{1,2}:\d{2}/.test(line)) return false
-
-    // Supprimer les lignes où les lettres représentent moins de 40% du texte
-    // (trop de symboles/chiffres → bruit d'interface)
-    if (letters.length < line.length * 0.40) return false
-
+    // Trop de symboles/chiffres
+    if (letters.length < line.length * 0.35) return false
     return true
   })
 
@@ -76,8 +104,8 @@ export default function App() {
         throw new Error("Aucun texte lisible dans l'image. Prenez une photo plus nette.")
       }
 
-      // Nettoyage : supprime les lignes parasites (interface, horodatages, symboles)
-      const cleanedText = cleanOCRText(rawText)
+      // Nettoyage : supprime les lignes parasites + les caractères déjà dans la langue cible
+      const cleanedText = cleanOCRText(rawText, tl.code)
 
       if (!cleanedText || cleanedText.trim().length < 3) {
         throw new Error("Le texte extrait ne contient pas de contenu lisible. Essayez avec une photo du document seul.")
