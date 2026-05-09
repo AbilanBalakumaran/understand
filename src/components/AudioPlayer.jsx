@@ -309,7 +309,7 @@ export default function AudioPlayer({
       </div>
 
       {/* ── Fixed bottom ── */}
-      <div className="fixed bottom-0 left-0 right-0 px-4 pb-6 pt-3 bg-white border-t border-gray-100 safe-bottom shadow-card-lg">
+      <div className="fixed bottom-0 left-0 right-0 px-4 pt-4 bg-white border-t border-gray-100 safe-bottom shadow-card-lg">
         <button
           onClick={() => { handleStop(); onStartOver() }}
           className="w-full flex items-center justify-center gap-2 border-2 border-primary-600 text-primary-700 rounded-2xl py-4 font-bold text-base hover:bg-primary-50 active:bg-primary-100 transition-colors"

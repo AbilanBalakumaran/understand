@@ -173,6 +173,13 @@ export default function App() {
       {/* Splash screen — shown once on launch */}
       {!splashDone && <SplashScreen onDone={() => setSplashDone(true)} />}
 
+      {/* iOS status-bar colour overlay.
+          With black-translucent, content goes behind the status bar.
+          This fixed div fills that gap with our cobalt blue so the
+          bar always matches the rest of the app. On Android / desktop
+          its height is 0 and it has no visual effect. */}
+      <div className="fixed top-0 left-0 right-0 bg-primary-600 z-[9997] safe-top-h" />
+
       <div className="max-w-md mx-auto relative min-h-screen">
         {step === STEP.UPLOAD && (
           <UploadStep

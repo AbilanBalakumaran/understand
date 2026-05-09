@@ -20,8 +20,16 @@ body {
 }
 
 @layer utilities {
+  /* Ensures buttons/content are never flush with the bottom edge.
+     28 px minimum covers devices without a home indicator.
+     env(safe-area-inset-bottom) adds extra room on notch phones. */
   .safe-bottom {
-    padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 28px);
+  }
+
+  /* Used by the status-bar colour overlay in App.jsx */
+  .safe-top-h {
+    height: env(safe-area-inset-top, 0px);
   }
 }
 

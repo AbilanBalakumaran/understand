@@ -1,15 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="theme-color" content="#2563EB" />
+
+    <!-- ── Status bar & theme colour (cobalt blue, both Android and iOS) ── -->
+    <meta name="theme-color" content="#2E5BFF" />
+
+    <!-- iOS PWA -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <!-- black-translucent: content goes behind status bar, bar is transparent.
+         A fixed cobalt overlay (injected by App.jsx) fills that area so the
+         status bar always appears the same cobalt blue as the rest of the app. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Understand" />
-    <meta name="description" content="Translate any document into your language and listen to it as audio" />
-    <link rel="apple-touch-icon" href="icon-192.png" />
+
+    <!-- Apple touch icon — generated at CI build time, copied from public/ -->
+    <link rel="apple-touch-icon" href="%BASE_URL%apple-touch-icon-180x180.png" />
+
+    <meta name="description" content="Scannez un document, traduisez-le et écoutez-le dans votre langue" />
     <title>Understand</title>
   </head>
   <body>

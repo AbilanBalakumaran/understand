@@ -158,7 +158,7 @@ export default function UploadStep({ onImageSelected }) {
       </div>
 
       {/* Fixed CTA */}
-      <div className="fixed bottom-0 left-0 right-0 px-4 pb-6 pt-3 bg-white border-t border-gray-100 safe-bottom shadow-card-lg">
+      <div className="fixed bottom-0 left-0 right-0 px-4 pt-4 bg-white border-t border-gray-100 safe-bottom shadow-card-lg">
         <button
           onClick={handleConfirm}
           className="w-full flex items-center justify-center gap-2.5 bg-primary-600 hover:bg-primary-700 active:bg-primary-800 text-white rounded-2xl py-4 font-bold text-base transition-colors shadow-blue"
