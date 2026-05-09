@@ -7,6 +7,36 @@ import { translateText } from './services/translate'
 
 const STEP = { UPLOAD: 0, LANGUAGE: 1, AUDIO: 2 }
 
+/**
+ * Nettoie le texte brut OCR en supprimant les lignes parasites :
+ * - Éléments d'interface (barres de statut, boutons, icônes)
+ * - Lignes trop courtes ou composées de symboles
+ * - Horodatages et pourcentages de batterie
+ */
+function cleanOCRText(text) {
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+
+  const cleaned = lines.filter((line) => {
+    // Supprimer les lignes avec trop peu de lettres réelles
+    const letters = (line.match(/\p{L}/gu) || [])
+    if (letters.length < 4) return false
+
+    // Supprimer les lignes commençant par des symboles d'interface (<, >, [, ", etc.)
+    if (/^[<>\[\]{}/\\|=+*&#@~`"']+/.test(line)) return false
+
+    // Supprimer les lignes d'horodatage (ex: "12:21" au début)
+    if (/^\d{1,2}:\d{2}/.test(line)) return false
+
+    // Supprimer les lignes où les lettres représentent moins de 40% du texte
+    // (trop de symboles/chiffres → bruit d'interface)
+    if (letters.length < line.length * 0.40) return false
+
+    return true
+  })
+
+  return cleaned.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
 export default function App() {
   const [step, setStep] = useState(STEP.UPLOAD)
   const [imageFile, setImageFile] = useState(null)
@@ -43,11 +73,18 @@ export default function App() {
       setOcrProgress(100)
 
       if (!rawText || rawText.trim().length < 3) {
-        throw new Error("No text could be read from the image. Please try with a clearer photo.")
+        throw new Error("Aucun texte lisible dans l'image. Prenez une photo plus nette.")
+      }
+
+      // Nettoyage : supprime les lignes parasites (interface, horodatages, symboles)
+      const cleanedText = cleanOCRText(rawText)
+
+      if (!cleanedText || cleanedText.trim().length < 3) {
+        throw new Error("Le texte extrait ne contient pas de contenu lisible. Essayez avec une photo du document seul.")
       }
 
       // Step 2: Translate
-      const translated = await translateText(rawText, sourceLang.apiCode, tl.code, (p) => setTranslateProgress(p))
+      const translated = await translateText(cleanedText, sourceLang.apiCode, tl.code, (p) => setTranslateProgress(p))
       setTranslateProgress(100)
       setTranslatedText(translated)
     } catch (err) {
