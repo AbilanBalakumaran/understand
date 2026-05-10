@@ -106,7 +106,22 @@ export async function detectImageLanguage(image) {
     // Low confidence ⇒ image is not Latin-script or is unreadable
     if (data.confidence < 48) return null
 
-    return detectLatinLanguage(data.text)
+    // Second guard: even with decent confidence, Tesseract produces garbage
+    // characters when reading Chinese / Arabic / Tamil / Japanese.
+    // If fewer than 60 % of the non-space characters are Latin letters,
+    // the document is non-Latin → do not attempt stop-word detection.
+    const text = data.text
+    const nonSpace = text.replace(/\s/g, '')
+    if (nonSpace.length < 10) return null
+
+    const latinCount = (nonSpace.match(
+      /[a-zA-ZàâäçéèêëîïôùûüœæßąćęłńóśźżřšžáéíóúìòñÀÂÄÇÉÈÊËÎÏÔÙÛÜŒÆ]/g
+    ) || []).length
+
+    // Non-Latin script (Chinese, Arabic, Cyrillic, Tamil…) → skip detection
+    if (latinCount / nonSpace.length < 0.60) return null
+
+    return detectLatinLanguage(text)
   } catch {
     return null
   } finally {

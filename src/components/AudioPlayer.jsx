@@ -90,14 +90,18 @@ export default function AudioPlayer({
     if (audioRef.current) audioRef.current.pause()
   }, [])
 
-  /* ── audio element events (only wired when ready) ── */
+  /* ── audio element events — attached once at mount, always active ──
+     IMPORTANT: must NOT depend on audioPhase. If we conditionally attach
+     based on phase, audio.play() fires the 'play' event BEFORE the
+     useEffect re-runs (React flushes state → re-render → effect), so
+     isPlayingReady would never be set to true and pause would break. */
   useEffect(() => {
     const audio = audioRef.current
-    if (!audio || audioPhase !== 'ready') return
+    if (!audio) return
 
     const onTimeUpdate     = () => setAudioCurrentTime(audio.currentTime)
     const onDurationChange = () => setAudioDuration(isFinite(audio.duration) ? audio.duration : 0)
-    const onEnded          = () => { setIsPlayingReady(false) }
+    const onEnded          = () => setIsPlayingReady(false)
     const onPlay           = () => setIsPlayingReady(true)
     const onPause          = () => setIsPlayingReady(false)
     const onError          = () => {
@@ -119,7 +123,7 @@ export default function AudioPlayer({
       audio.removeEventListener('pause',          onPause)
       audio.removeEventListener('error',          onError)
     }
-  }, [audioPhase])
+  }, []) // ← empty: attach once, never re-wire
 
   /* ── start streaming fallback ── */
   const startStreaming = useCallback(() => {
@@ -183,8 +187,12 @@ export default function AudioPlayer({
       audio.src = url
       audio.playbackRate = SPEEDS[speedIndex]
       audio.load()
-      try { await audio.play() }
-      catch { setTtsError('Lecture bloquée par le navigateur. Appuyez à nouveau sur Play.') }
+      try {
+        await audio.play()
+        setIsPlayingReady(true) // belt-and-suspenders: don't rely solely on the 'play' event
+      } catch {
+        setTtsError('Lecture bloquée par le navigateur. Appuyez à nouveau sur Play.')
+      }
     }
   }, [translatedText, isReady, audioPhase, isPlayingReady, targetLang, speedIndex, startStreaming])
 
