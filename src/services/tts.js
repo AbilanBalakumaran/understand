@@ -60,7 +60,8 @@ function cleanupUrls() {
   objectUrls = []
 }
 
-async function fetchLingvaAudio(text, langBcp47) {
+/** Fetches a single chunk from Lingva and returns the raw MP3 Blob (or null). */
+async function fetchLingvaBlob(text, langBcp47) {
   const lang = langBcp47.split('-')[0]
   for (const instance of LINGVA_INSTANCES) {
     try {
@@ -69,14 +70,18 @@ async function fetchLingvaAudio(text, langBcp47) {
       if (!res.ok) continue
       const data = await res.json()
       if (!Array.isArray(data.audio) || !data.audio.length) continue
-      const bytes = new Uint8Array(data.audio)
-      const blob = new Blob([bytes], { type: 'audio/mpeg' })
-      const objectUrl = URL.createObjectURL(blob)
-      objectUrls.push(objectUrl)
-      return objectUrl
+      return new Blob([new Uint8Array(data.audio)], { type: 'audio/mpeg' })
     } catch (_) {}
   }
   return null
+}
+
+async function fetchLingvaAudio(text, langBcp47) {
+  const blob = await fetchLingvaBlob(text, langBcp47)
+  if (!blob) return null
+  const objectUrl = URL.createObjectURL(blob)
+  objectUrls.push(objectUrl)
+  return objectUrl
 }
 
 function speakWithLingva(text, lang, { rate = 0.9, onEnd, onError, onChunkStart } = {}) {
@@ -239,4 +244,35 @@ export function speak(text, lang, { rate = 0.9, onEnd, onError, onChunkStart } =
   stopSpeech()
   isActive = true
   speakWithLingva(text, lang, { rate, onEnd, onError, onChunkStart })
+}
+
+/**
+ * Pre-fetches ALL chunks from Lingva and concatenates them into a single MP3 Blob.
+ * Returns { blob, chunks } on success, or null if Lingva is unavailable.
+ *
+ * @param {string}   text
+ * @param {string}   lang        - BCP-47
+ * @param {{ onProgress?, signal? }} options
+ *   onProgress(0-100) called after each chunk is fetched
+ *   signal  AbortSignal to cancel the operation
+ * @returns {Promise<{ blob: Blob, chunks: string[] } | null>}
+ */
+export async function generateAudio(text, lang, { onProgress, signal } = {}) {
+  const chunks = splitIntoChunks(text)
+  const blobs  = []
+
+  for (let i = 0; i < chunks.length; i++) {
+    if (signal?.aborted) return null
+
+    const blob = await fetchLingvaBlob(chunks[i], lang)
+
+    if (signal?.aborted) return null
+    if (!blob) return null   // Lingva down → caller falls back to streaming
+
+    blobs.push(blob)
+    onProgress?.(Math.round(((i + 1) / chunks.length) * 100))
+  }
+
+  const combined = new Blob(blobs, { type: 'audio/mpeg' })
+  return { blob: combined, chunks }
 }
