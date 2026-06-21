@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback, Fragment } from 'react'
 import {
   speak, stopSpeech, pauseSpeech, resumeSpeech,
   splitIntoChunks, generateAudio,
@@ -37,6 +37,8 @@ export default function AudioPlayer({
   const [ttsError,      setTtsError]      = useState(null)
   const [speedIndex,    setSpeedIndex]    = useState(2)
   const [copied,        setCopied]        = useState(false)
+  const [imgModalOpen,  setImgModalOpen]  = useState(false)
+  const [imgZoom,       setImgZoom]       = useState(1)
 
   /* ── ready-mode state ── */
   const [audioDuration,    setAudioDuration]    = useState(0)
@@ -280,33 +282,46 @@ export default function AudioPlayer({
 
   /* ── render ── */
   return (
+    <>
     <div className="flex flex-col min-h-screen bg-white">
 
       {/* Hidden native audio element — src set dynamically */}
       <audio ref={audioRef} preload="auto" />
 
-      {/* ── Top bar ── */}
-      <div className="flex items-center gap-3 px-4 pt-12 pb-4 bg-gradient-to-b from-primary-50 to-white sticky top-0 z-10">
+      {/* ── Blue header ── */}
+      <div
+        className="flex items-center gap-3 px-4 pb-4 sticky top-0 z-10"
+        style={{
+          background: 'var(--color-brand)',
+          paddingTop: 'max(48px, calc(env(safe-area-inset-top, 0px) + 12px))',
+        }}
+      >
         <button
           onClick={handleBack}
-          className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors"
+          className="w-10 h-10 rounded-full flex items-center justify-center bg-white/15 hover:bg-white/25 active:bg-white/35 transition-colors"
           aria-label="Retour"
         >
-          <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <div>
-          <h2 className="font-bold text-gray-900 text-lg leading-tight">
+        <div className="flex-1">
+          <h2 className="font-bold text-white text-lg leading-tight">
             {isProcessing
               ? (verifying ? 'Vérification…' : 'Traitement…')
               : error ? 'Une erreur est survenue'
               : 'Audio prêt !'}
           </h2>
-          <p className="text-gray-400 text-xs">Étape 3 / 3 · {targetLang.flag} {targetLang.name}</p>
+          <p className="text-white/60 text-xs">Étape 3 / 3 · {targetLang.flag} {targetLang.name}</p>
         </div>
         {imagePreview && (
-          <img src={imagePreview} alt="document" className="ml-auto w-10 h-12 object-cover rounded-xl border border-gray-200" />
+          <button
+            onClick={() => { setImgZoom(1); setImgModalOpen(true) }}
+            className="rounded-xl border-2 border-white/30 overflow-hidden hover:opacity-80 active:opacity-60 transition-opacity"
+            aria-label="Agrandir le document"
+          >
+            <img src={imagePreview} alt="document" className="w-10 h-12 object-cover block" />
+          </button>
         )}
       </div>
 
@@ -618,6 +633,73 @@ export default function AudioPlayer({
         </button>
       </div>
     </div>
+
+    {/* ── Image zoom modal ── */}
+    {imgModalOpen && imagePreview && (
+      <div
+        className="fixed inset-0 z-50 bg-black flex flex-col"
+        style={{ paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      >
+        <div className="flex items-center justify-between px-4 py-3 shrink-0 bg-black/60 backdrop-blur-sm">
+          <button
+            onClick={() => setImgModalOpen(false)}
+            className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors"
+          >
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setImgZoom((z) => Math.max(z - 0.5, 0.5))}
+              disabled={imgZoom <= 0.5}
+              className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white text-xl font-light disabled:opacity-30"
+            >−</button>
+            <button
+              onClick={() => setImgZoom(1)}
+              className="px-3 py-1.5 rounded-xl bg-white/15 text-white text-xs font-semibold min-w-[3.5rem] text-center"
+            >
+              {Math.round(imgZoom * 100)}%
+            </button>
+            <button
+              onClick={() => setImgZoom((z) => Math.min(z + 0.5, 5))}
+              disabled={imgZoom >= 5}
+              className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white text-xl font-light disabled:opacity-30"
+            >+</button>
+          </div>
+          <button
+            onClick={() => setImgZoom(1)}
+            className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center"
+          >
+            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5"/>
+            </svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto" style={{ cursor: imgZoom > 1 ? 'grab' : 'default' }}>
+          <div
+            className="min-h-full flex items-center justify-center p-4"
+            style={{ minWidth: imgZoom > 1 ? `${imgZoom * 100}%` : '100%' }}
+          >
+            <img
+              src={imagePreview}
+              alt="document"
+              draggable={false}
+              style={{
+                transform: `scale(${imgZoom})`,
+                transformOrigin: 'center center',
+                transition: 'transform 0.2s ease',
+                maxWidth: imgZoom <= 1 ? '100%' : 'none',
+                display: 'block',
+                userSelect: 'none',
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
 

@@ -305,23 +305,26 @@ export default function UploadStep({ onImageSelected }) {
     <div className="flex flex-col min-h-screen bg-white">
       {inputs}
 
-      {/* Top bar — fully opaque */}
+      {/* ── Blue header ── */}
       <div
-        className="flex items-center gap-3 px-4 pb-4 bg-white border-b border-gray-100 shadow-sm"
-        style={{ paddingTop: 'max(48px, calc(env(safe-area-inset-top, 0px) + 12px))' }}
+        className="flex items-center gap-3 px-4 pb-4 sticky top-0 z-10"
+        style={{
+          background: 'var(--color-brand)',
+          paddingTop: 'max(48px, calc(env(safe-area-inset-top, 0px) + 12px))',
+        }}
       >
         <button
           onClick={handleReset}
-          className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors"
+          className="w-10 h-10 rounded-full flex items-center justify-center bg-white/15 hover:bg-white/25 active:bg-white/35 transition-colors"
           aria-label="Retour"
         >
-          <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
         <div>
-          <h2 className="font-bold text-gray-900 text-lg leading-tight">{t.docTitle}</h2>
-          <p className="text-gray-400 text-xs">{t.docStep}</p>
+          <h2 className="font-bold text-white text-lg leading-tight">{t.docTitle}</h2>
+          <p className="text-white/60 text-xs">{t.docStep}</p>
         </div>
       </div>
 

@@ -2,7 +2,9 @@ import { useState, useMemo, useEffect } from 'react'
 import { TARGET_LANGUAGES } from '../data/languages'
 import { useAppLang } from '../context/AppLang'
 
-const STORAGE_KEY = 'understand_lastTargetLang'
+const STORAGE_KEY  = 'understand_lastTargetLang'
+const RECENT_KEY   = 'understand_recentTargets'
+const MAX_RECENT   = 5
 
 function loadLastTarget() {
   try {
@@ -17,10 +19,28 @@ function saveLastTarget(lang) {
   try { localStorage.setItem(STORAGE_KEY, lang.code) } catch {}
 }
 
+function loadRecentTargets() {
+  try {
+    const codes = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]')
+    return codes.map((c) => TARGET_LANGUAGES.find((l) => l.code === c)).filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+function saveRecentTarget(lang) {
+  try {
+    const existing = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]')
+    const updated  = [lang.code, ...existing.filter((c) => c !== lang.code)].slice(0, MAX_RECENT)
+    localStorage.setItem(RECENT_KEY, JSON.stringify(updated))
+  } catch {}
+}
+
 const UI = {
   fr: {
     title:    'Choisissez votre langue',
     step:     'Étape 2 / 3',
+    recent:   'Récentes',
     yourLang: "Votre langue — l'audio sera dans cette langue",
     saved:    'Mémorisée',
     search:   'Rechercher une langue…',
@@ -35,6 +55,7 @@ const UI = {
   en: {
     title:    'Choose your language',
     step:     'Step 2 / 3',
+    recent:   'Recent',
     yourLang: 'Your language — audio will be in this language',
     saved:    'Saved',
     search:   'Search a language…',
@@ -58,6 +79,7 @@ export default function LanguageSelect({
 
   const [search, setSearch]                 = useState('')
   const [selectedTarget, setSelectedTarget] = useState(() => loadLastTarget())
+  const [recentTargets, setRecentTargets]   = useState(() => loadRecentTargets())
 
   // Image zoom modal
   const [modalOpen, setModalOpen] = useState(false)
@@ -92,6 +114,12 @@ export default function LanguageSelect({
   const handleSelectTarget = (lang) => {
     setSelectedTarget(lang)
     saveLastTarget(lang)
+    saveRecentTarget(lang)
+    // Update recent list in state immediately
+    setRecentTargets((prev) => {
+      const updated = [lang, ...prev.filter((l) => l.code !== lang.code)].slice(0, MAX_RECENT)
+      return updated
+    })
   }
 
   const handleConfirm = () => {
@@ -99,34 +127,40 @@ export default function LanguageSelect({
     onConfirm({ targetLang: selectedTarget })
   }
 
+  // Recently used to show at top (only when not searching)
+  const showRecent = !search && recentTargets.length > 0
+
   return (
     <>
       <div className="flex flex-col min-h-screen bg-white">
 
-        {/* ── Top bar ── */}
+        {/* ── Blue header (consistent across all pages) ── */}
         <div
-          className="flex items-center gap-3 px-4 pb-4 bg-white border-b border-gray-100 sticky top-0 z-10 shadow-sm"
-          style={{ paddingTop: 'max(48px, calc(env(safe-area-inset-top, 0px) + 12px))' }}
+          className="flex items-center gap-3 px-4 pb-4 sticky top-0 z-10"
+          style={{
+            background: 'var(--color-brand)',
+            paddingTop: 'max(48px, calc(env(safe-area-inset-top, 0px) + 12px))',
+          }}
         >
           <button
             onClick={onBack}
-            className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors"
+            className="w-10 h-10 rounded-full flex items-center justify-center bg-white/15 hover:bg-white/25 active:bg-white/35 transition-colors"
             aria-label="Retour"
           >
-            <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <div>
-            <h2 className="font-bold text-gray-900 text-lg leading-tight">{t.title}</h2>
-            <p className="text-gray-400 text-xs">{t.step}</p>
+          <div className="flex-1">
+            <h2 className="font-bold text-white text-lg leading-tight">{t.title}</h2>
+            <p className="text-white/60 text-xs">{t.step}</p>
           </div>
 
           {/* Thumbnail — tap to open zoom modal */}
           {imagePreview && (
             <button
               onClick={() => setModalOpen(true)}
-              className="ml-auto rounded-xl border border-gray-200 overflow-hidden hover:opacity-80 active:opacity-60 transition-opacity focus-visible:ring-2 focus-visible:ring-primary-500"
+              className="rounded-xl border-2 border-white/30 overflow-hidden hover:opacity-80 active:opacity-60 transition-opacity"
               aria-label={t.zoomIn}
               style={{ WebkitTapHighlightColor: 'transparent' }}
             >
@@ -140,6 +174,39 @@ export default function LanguageSelect({
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 pt-4 pb-36">
+
+          {/* ── Recently used languages ── */}
+          {showRecent && (
+            <div className="mb-5">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2.5">
+                {t.recent}
+              </p>
+              <div className="flex gap-2 flex-wrap">
+                {recentTargets.map((lang) => {
+                  const isSelected = selectedTarget?.code === lang.code
+                  return (
+                    <button
+                      key={lang.code}
+                      onClick={() => handleSelectTarget(lang)}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-2xl border transition-all text-sm font-semibold ${
+                        isSelected
+                          ? 'bg-primary-600 text-white border-primary-600 shadow-blue'
+                          : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50 active:bg-gray-100'
+                      }`}
+                    >
+                      <span className="text-base">{lang.flag}</span>
+                      <span>{langName(lang)}</span>
+                      {isSelected && (
+                        <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* ── Target language ── */}
           <div>
@@ -249,9 +316,7 @@ export default function LanguageSelect({
           className="fixed inset-0 z-50 bg-black flex flex-col"
           style={{ paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
         >
-          {/* Control bar */}
           <div className="flex items-center justify-between px-4 py-3 shrink-0 bg-black/60 backdrop-blur-sm">
-            {/* Close */}
             <button
               onClick={() => setModalOpen(false)}
               className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 active:bg-white/35 flex items-center justify-center transition-colors"
@@ -261,36 +326,27 @@ export default function LanguageSelect({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12"/>
               </svg>
             </button>
-
-            {/* Zoom controls */}
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setZoom((z) => Math.max(z - 0.5, 0.5))}
                 disabled={zoom <= 0.5}
-                className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 active:bg-white/35 flex items-center justify-center text-white text-xl font-light transition-colors disabled:opacity-30"
-                aria-label={t.zoomOut}
+                className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white text-xl font-light transition-colors disabled:opacity-30"
               >−</button>
-
               <button
                 onClick={() => setZoom(1)}
-                className="px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 active:bg-white/35 text-white text-xs font-semibold transition-colors min-w-[3.5rem] text-center"
+                className="px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-semibold transition-colors min-w-[3.5rem] text-center"
               >
                 {Math.round(zoom * 100)}%
               </button>
-
               <button
                 onClick={() => setZoom((z) => Math.min(z + 0.5, 5))}
                 disabled={zoom >= 5}
-                className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 active:bg-white/35 flex items-center justify-center text-white text-xl font-light transition-colors disabled:opacity-30"
-                aria-label={t.zoomIn}
+                className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white text-xl font-light transition-colors disabled:opacity-30"
               >+</button>
             </div>
-
-            {/* Reset zoom */}
             <button
               onClick={() => setZoom(1)}
-              className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 active:bg-white/35 flex items-center justify-center transition-colors"
-              aria-label={t.reset}
+              className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors"
             >
               <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -298,12 +354,7 @@ export default function LanguageSelect({
               </svg>
             </button>
           </div>
-
-          {/* Scrollable / zoomable image area */}
-          <div
-            className="flex-1 overflow-auto"
-            style={{ cursor: zoom > 1 ? 'grab' : 'default' }}
-          >
+          <div className="flex-1 overflow-auto" style={{ cursor: zoom > 1 ? 'grab' : 'default' }}>
             <div
               className="min-h-full flex items-center justify-center p-4"
               style={{ minWidth: zoom > 1 ? `${zoom * 100}%` : '100%' }}

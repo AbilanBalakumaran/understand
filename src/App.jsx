@@ -96,35 +96,43 @@ export default function App() {
     // (must be triggered by a user gesture — this callback is called from a button click)
     requestNotifPermission()
 
-    try {
-      // Step 1 — OCR (auto multilingual: detects script internally)
-      const rawText = await extractTextAuto(imageFile, (p) => setOcrProgress(p))
-      setOcrProgress(100)
+    const run = async () => {
+      try {
+        // Step 1 — OCR (auto multilingual: detects script internally)
+        const rawText = await extractTextAuto(imageFile, (p) => setOcrProgress(p))
+        setOcrProgress(100)
 
-      if (!rawText || rawText.trim().length < 3) {
-        throw new Error("Aucun texte lisible dans l'image. Prenez une photo plus nette.")
+        if (!rawText || rawText.trim().length < 3) {
+          throw new Error("Aucun texte lisible dans l'image. Prenez une photo plus nette.")
+        }
+
+        const cleanedText = cleanOCRText(rawText, tl.code)
+
+        if (!cleanedText || cleanedText.trim().length < 3) {
+          throw new Error("Le texte extrait ne contient pas de contenu lisible. Essayez avec une photo du document seul.")
+        }
+
+        // Step 2 — Translate (auto source: API detects language per chunk)
+        const translated = await translateText(cleanedText, 'auto', tl.code, (p) => setTranslateProgress(p))
+        setTranslateProgress(100)
+        setTranslatedText(translated)
+
+        sendNotification(
+          'Understand — Audio prêt ! 🎧',
+          `Votre document a été traduit en ${tl.name}. Touchez pour écouter.`
+        )
+      } catch (err) {
+        setError(err.message || 'Une erreur inattendue est survenue. Veuillez réessayer.')
+      } finally {
+        setIsProcessing(false)
       }
+    }
 
-      const cleanedText = cleanOCRText(rawText, tl.code)
-
-      if (!cleanedText || cleanedText.trim().length < 3) {
-        throw new Error("Le texte extrait ne contient pas de contenu lisible. Essayez avec une photo du document seul.")
-      }
-
-      // Step 2 — Translate (auto source: API detects language per chunk)
-      const translated = await translateText(cleanedText, 'auto', tl.code, (p) => setTranslateProgress(p))
-      setTranslateProgress(100)
-      setTranslatedText(translated)
-
-      // Notify the user that their document is ready (even if the tab is in background)
-      sendNotification(
-        'Understand — Audio prêt ! 🎧',
-        `Votre document a été traduit en ${tl.name}. Touchez pour écouter.`
-      )
-    } catch (err) {
-      setError(err.message || 'Une erreur inattendue est survenue. Veuillez réessayer.')
-    } finally {
-      setIsProcessing(false)
+    // Keep the task alive even when the tab goes to background
+    if ('locks' in navigator) {
+      navigator.locks.request('understand-processing', { mode: 'exclusive' }, run)
+    } else {
+      run()
     }
   }
 
