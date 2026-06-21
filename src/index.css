@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* Bleu primaire pendant le chargement → évite le flash blanc avant la splash screen */
+  background: #2E5BFF;
+  overscroll-behavior: none;
+}
+
+@layer utilities {
+  /* Hauteur de la zone status-bar iOS (inset top) */
+  .safe-top-h {
+    height: env(safe-area-inset-top, 0px);
+  }
+
+  /* Padding bas pour les boutons fixes (home indicator) */
+  .safe-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 28px);
+  }
+
+  /* Padding top pour les headers : safe-area + contenu */
+  .safe-header-pt {
+    padding-top: max(env(safe-area-inset-top, 0px), 12px);
+  }
+}
+
+html { scroll-behavior: smooth; }
+
+button:focus-visible { outline: 3px solid #2E5BFF; outline-offset: 2px; }
+input:focus-visible  { outline: 2px solid #2E5BFF; outline-offset: 1px; }
+
+/* ── Language grid scrollbar ── */
+.lang-grid::-webkit-scrollbar       { width: 4px; }
+.lang-grid::-webkit-scrollbar-track { background: #F4F6FF; }
+.lang-grid::-webkit-scrollbar-thumb { background: #C2D0FF; border-radius: 2px; }
+
+/* ══════════════════════════════════════════════════════
+   SPLASH SCREEN ANIMATIONS
+══════════════════════════════════════════════════════ */
+
+@keyframes splash-icon-in {
+  0%   { transform: scale(0.3) translateY(40px); opacity: 0; }
+  65%  { transform: scale(1.12) translateY(-8px); opacity: 1; }
+  82%  { transform: scale(0.96) translateY(3px); opacity: 1; }
+  100% { transform: scale(1)    translateY(0);   opacity: 1; }
+}
+
+@keyframes splash-text-in {
+  0%   { transform: translateY(24px); opacity: 0; }
+  100% { transform: translateY(0);    opacity: 1; }
+}
+
+@keyframes dot-pulse {
+  0%, 100% { transform: scale(1);    opacity: 0.8; }
+  50%       { transform: scale(1.5); opacity: 1;   }
+}
+
+.splash-icon {
+  animation: splash-icon-in 0.75s cubic-bezier(0.175, 0.885, 0.32, 1.275) 0.1s both;
+}
+.splash-title {
+  animation: splash-text-in 0.5s ease-out 0.55s both;
+}
+.splash-sub {
+  animation: splash-text-in 0.5s ease-out 0.75s both;
+}
+.splash-dots {
+  animation: splash-text-in 0.4s ease-out 0.95s both;
+}
+.dot-1 { animation: dot-pulse 1.2s ease-in-out 1.1s infinite; }
+.dot-2 { animation: dot-pulse 1.2s ease-in-out 1.3s infinite; }
+.dot-3 { animation: dot-pulse 1.2s ease-in-out 1.5s infinite; }
+
+/* ══════════════════════════════════════════════════════
+   GENERAL ANIMATIONS
+══════════════════════════════════════════════════════ */
+
+@keyframes pulse-ring {
+  0%   { transform: scale(0.85); opacity: 1; }
+  100% { transform: scale(1.65); opacity: 0; }
+}
+.pulse-ring { animation: pulse-ring 1.4s ease-out infinite; }
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.spin-slow { animation: spin-slow 2s linear infinite; }
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fade-up 0.3s ease-out both; }
+
+/* ══════════════════════════════════════════════════════
+   MODAL SETTINGS
+══════════════════════════════════════════════════════ */
+.settings-overlay {
+  animation: fade-up 0.2s ease-out both;
+}

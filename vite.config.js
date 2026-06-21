@@ -1,0 +1,54 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
+
+export default defineConfig({
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      // Both the source SVG and the CI-generated PNGs need to be included
+      includeAssets: [
+        'icon.svg',
+        'pwa-192x192.png',
+        'pwa-512x512.png',
+        'maskable-icon-512x512.png',
+        'apple-touch-icon-180x180.png',
+      ],
+      manifest: {
+        name: 'Understand',
+        short_name: 'Understand',
+        description: 'Translate any document into your language and listen to it',
+        theme_color: '#2E5BFF',
+        background_color: '#2E5BFF',
+        display: 'standalone',
+        orientation: 'portrait',
+        start_url: '/understand/',
+        icons: [
+          // Full-bleed PNGs — purpose "any maskable" tells Android to use
+          // these directly as adaptive icons (no white wrapper added).
+          // All meaningful content sits within the central 80 % safe zone.
+          {
+            src: 'pwa-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any maskable',
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any maskable',
+          },
+          // SVG fallback for browsers that support it
+          {
+            src: 'icon.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
+          },
+        ]
+      }
+    })
+  ],
+  base: '/understand/'
+})
