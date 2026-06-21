@@ -1,12 +1,11 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import UploadStep     from './components/UploadStep'
 import LanguageSelect from './components/LanguageSelect'
 import AudioPlayer    from './components/AudioPlayer'
 import SplashScreen   from './components/SplashScreen'
-import { extractText, detectImageLanguage } from './services/ocr'
+import { extractTextAuto } from './services/ocr'
 import { translateText } from './services/translate'
 import { requestNotifPermission, sendNotification } from './services/notifications'
-import { SOURCE_LANGUAGES } from './data/languages'
 
 const STEP = { UPLOAD: 0, LANGUAGE: 1, AUDIO: 2 }
 
@@ -74,44 +73,17 @@ export default function App() {
   const [isProcessing, setIsProcessing]         = useState(false)
   const [error, setError]                       = useState(null)
 
-  // ── Language detection ──────────────────────────────────────────
-  const [detectedSourceLang, setDetectedSourceLang]     = useState(null)
-  const [detectionConfidence, setDetectionConfidence]   = useState(1)
-  const [isDetecting, setIsDetecting]                   = useState(false)
-  const detectAbortRef                                  = useRef(false)
-
   // Scroll to top on every step change
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [step])
-
-  // Run detection when entering LanguageSelect
-  useEffect(() => {
-    if (step !== STEP.LANGUAGE || !imageFile) return
-
-    detectAbortRef.current = false
-    setIsDetecting(true)
-    setDetectedSourceLang(null)
-
-    detectImageLanguage(imageFile).then((result) => {
-      if (detectAbortRef.current) return
-      if (result) {
-        const lang = SOURCE_LANGUAGES.find((l) => l.code === result.code) || null
-        setDetectedSourceLang(lang)
-        setDetectionConfidence(result.confidence ?? 1)
-      }
-      setIsDetecting(false)
-    })
-
-    return () => { detectAbortRef.current = true }
-  }, [step, imageFile])
 
   const handleImageSelected = useCallback((file, preview) => {
     setImageFile(file)
     setImagePreview(preview)
   }, [])
 
-  const handleLanguageConfirm = async ({ sourceLang, targetLang: tl }) => {
+  const handleLanguageConfirm = async ({ targetLang: tl }) => {
     setTargetLang(tl)
     setStep(STEP.AUDIO)
     setIsProcessing(true)
@@ -125,8 +97,8 @@ export default function App() {
     requestNotifPermission()
 
     try {
-      // Step 1 — OCR
-      const rawText = await extractText(imageFile, sourceLang.code, (p) => setOcrProgress(p))
+      // Step 1 — OCR (auto multilingual: detects script internally)
+      const rawText = await extractTextAuto(imageFile, (p) => setOcrProgress(p))
       setOcrProgress(100)
 
       if (!rawText || rawText.trim().length < 3) {
@@ -139,8 +111,8 @@ export default function App() {
         throw new Error("Le texte extrait ne contient pas de contenu lisible. Essayez avec une photo du document seul.")
       }
 
-      // Step 2 — Translate
-      const translated = await translateText(cleanedText, sourceLang.apiCode, tl.code, (p) => setTranslateProgress(p))
+      // Step 2 — Translate (auto source: API detects language per chunk)
+      const translated = await translateText(cleanedText, 'auto', tl.code, (p) => setTranslateProgress(p))
       setTranslateProgress(100)
       setTranslatedText(translated)
 
@@ -166,9 +138,6 @@ export default function App() {
     setTranslateProgress(0)
     setIsProcessing(false)
     setError(null)
-    setDetectedSourceLang(null)
-    setDetectionConfidence(1)
-    setIsDetecting(false)
   }
 
   return (
@@ -198,9 +167,6 @@ export default function App() {
             imagePreview={imagePreview}
             onConfirm={handleLanguageConfirm}
             onBack={() => setStep(STEP.UPLOAD)}
-            detectedLang={detectedSourceLang}
-            isDetecting={isDetecting}
-            detectionConfidence={detectionConfidence}
           />
         )}
 

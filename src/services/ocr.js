@@ -4,6 +4,31 @@ import { isPdf, extractPdfNativeText } from './pdf'
 
 // ─── OCR text extraction (main translation pipeline) ─────────────────────────
 
+/**
+ * Multilingual OCR — no source language needed from the user.
+ * Internally detects the dominant script via OSD and picks the right
+ * Tesseract model. Falls back to a broad Latin multi-language pack.
+ */
+export async function extractTextAuto(image, onProgress) {
+  // Detect script first (fast, no full OCR)
+  const osdScript = await detectScriptViaOsd(image)
+
+  let langCode = 'eng+fra+deu+spa+ita+por+nld+pol+ces+ron+hun+tur'
+
+  if (
+    osdScript &&
+    osdScript !== 'Latin' &&
+    osdScript !== 'Common' &&
+    osdScript !== 'Unknown' &&
+    osdScript !== ''
+  ) {
+    const code = OSD_SCRIPT_TO_CODE[osdScript]
+    if (code) langCode = code
+  }
+
+  return extractText(image, langCode, onProgress)
+}
+
 export async function extractText(image, langCode = 'eng', onProgress) {
   const worker = await createWorker(langCode, 1, {
     logger: (m) => {
