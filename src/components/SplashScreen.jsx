@@ -18,6 +18,9 @@ export default function SplashScreen({ onDone }) {
       className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center
         bg-gradient-to-b from-primary-700 to-primary-500
         transition-opacity duration-500 ${fading ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+      // Ensure gradient extends behind the iOS status bar (inset-0 covers it,
+      // but adding explicit padding-top keeps content away from the notch).
+      style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
     >
       {/* Animated icon */}
       <div className="splash-icon w-28 h-28 bg-white/15 rounded-[32px] flex items-center justify-center mb-8 backdrop-blur-sm">
@@ -33,11 +36,11 @@ export default function SplashScreen({ onDone }) {
 
       {/* Tagline */}
       <p className="splash-sub text-white/55 text-sm mt-3 tracking-wider font-medium">
-        Documents · Translation · Audio
+        Documents · Traduction · Audio
       </p>
 
       {/* Bottom dot indicator */}
-      <div className="splash-dots absolute bottom-16 flex gap-2">
+      <div className="splash-dots absolute bottom-16 flex gap-2" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
         <span className="w-2 h-2 rounded-full bg-white/80 dot-1" />
         <span className="w-2 h-2 rounded-full bg-white/40 dot-2" />
         <span className="w-2 h-2 rounded-full bg-white/20 dot-3" />

@@ -1,5 +1,7 @@
 import { useRef, useState, useCallback } from 'react'
 import { convertPdfToImage, isPdf } from '../services/pdf'
+import SettingsModal from './SettingsModal'
+import { useAppLang } from '../context/AppLang'
 
 /* Rotates an image (given its blob URL) by `degrees` using Canvas. */
 function applyCanvasRotation(blobUrl, degrees) {
@@ -24,23 +26,65 @@ function applyCanvasRotation(blobUrl, degrees) {
   })
 }
 
+const UI = {
+  fr: {
+    tagline:      'Scannez un document · Traduisez-le · Écoutez-le',
+    step1:        'Étape 1 — Ajoutez votre document',
+    camera:       'Prendre une photo',
+    cameraHint:   "Utiliser l'appareil photo",
+    gallery:      'Choisir depuis la galerie',
+    galleryHint:  'Photo existante ou fichier PDF',
+    formats:      'Formats acceptés :',
+    formatsHint:  'Photo (JPG, PNG) ou document PDF · Texte bien éclairé et lisible.',
+    docTitle:     'Votre document',
+    docStep:      'Étape 1 / 3',
+    rotating:     'Rotation en cours…',
+    useImage:     'Utiliser cette image',
+    changeImage:  'Changer d\'image ou de PDF',
+    rotateTip:    'Tournez si la photo est prise en paysage',
+    pdfError:     'Impossible de lire ce PDF. Essayez avec une image JPG/PNG.',
+    pdfLoading:   'Conversion PDF…',
+    pdfPage:      'Lecture de la première page',
+  },
+  en: {
+    tagline:      'Scan a document · Translate it · Listen to it',
+    step1:        'Step 1 — Add your document',
+    camera:       'Take a photo',
+    cameraHint:   'Use the camera',
+    gallery:      'Choose from gallery',
+    galleryHint:  'Existing photo or PDF file',
+    formats:      'Accepted formats:',
+    formatsHint:  'Photo (JPG, PNG) or PDF document · Well-lit, legible text.',
+    docTitle:     'Your document',
+    docStep:      'Step 1 / 3',
+    rotating:     'Rotating…',
+    useImage:     'Use this image',
+    changeImage:  'Change image or PDF',
+    rotateTip:    'Rotate if the photo was taken in landscape',
+    pdfError:     'Cannot read this PDF. Try with a JPG/PNG image.',
+    pdfLoading:   'Converting PDF…',
+    pdfPage:      'Reading the first page',
+  },
+}
+
 export default function UploadStep({ onImageSelected }) {
+  const { lang: appLang } = useAppLang()
+  const t = UI[appLang] || UI.fr
+
   const fileInputRef   = useRef(null)
   const cameraInputRef = useRef(null)
 
-  /* baseFile/basePreview = original (never re-compressed).
-     file/preview         = current (rotated or original). */
   const [baseFile,    setBaseFile]    = useState(null)
   const [basePreview, setBasePreview] = useState(null)
   const [file,        setFile]        = useState(null)
   const [preview,     setPreview]     = useState(null)
-  const [rotation,    setRotation]    = useState(0)  // 0 | 90 | 180 | 270
+  const [rotation,    setRotation]    = useState(0)
 
   const [isConvertingPdf, setIsConvertingPdf] = useState(false)
   const [isRotating,      setIsRotating]      = useState(false)
   const [pdfError,        setPdfError]        = useState(null)
+  const [showSettings,    setShowSettings]    = useState(false)
 
-  /* ── incoming file (camera or gallery) ── */
   const handleFile = useCallback(async (f) => {
     if (!f) return
     setPdfError(null)
@@ -54,7 +98,7 @@ export default function UploadStep({ onImageSelected }) {
         setFile(blob);        setPreview(url)
         setRotation(0)
       } catch {
-        setPdfError('Impossible de lire ce PDF. Essayez avec une image JPG/PNG.')
+        setPdfError(t.pdfError)
       } finally {
         setIsConvertingPdf(false)
       }
@@ -67,18 +111,16 @@ export default function UploadStep({ onImageSelected }) {
     setBaseFile(f);    setBasePreview(url)
     setFile(f);        setPreview(url)
     setRotation(0)
-  }, [])
+  }, [t.pdfError])
 
   const onFileChange = (e) => handleFile(e.target.files?.[0])
 
-  /* ── rotate ── */
   const handleRotate = useCallback(async (delta) => {
     if (isRotating || !basePreview) return
     const newRot = (rotation + delta + 360) % 360
     setRotation(newRot)
 
     if (newRot === 0) {
-      // Back to original — no re-encode needed
       setFile(baseFile)
       setPreview(basePreview)
       return
@@ -97,23 +139,19 @@ export default function UploadStep({ onImageSelected }) {
     }
   }, [rotation, basePreview, baseFile, isRotating])
 
-  /* ── confirm ── */
   const handleConfirm = () => {
     if (!file || !preview || isRotating) return
     onImageSelected(file, preview)
   }
 
-  /* ── reset ── */
   const handleReset = () => {
     setBaseFile(null); setBasePreview(null)
     setFile(null);     setPreview(null)
     setRotation(0);    setPdfError(null)
   }
 
-  /* ── shared hidden inputs ── */
   const inputs = (
     <>
-      {/* Camera: images only */}
       <input
         ref={cameraInputRef}
         type="file"
@@ -122,7 +160,6 @@ export default function UploadStep({ onImageSelected }) {
         className="hidden"
         onChange={onFileChange}
       />
-      {/* Gallery: images + PDF */}
       <input
         ref={fileInputRef}
         type="file"
@@ -142,7 +179,24 @@ export default function UploadStep({ onImageSelected }) {
         {inputs}
 
         {/* Hero */}
-        <div className="flex flex-col items-center pt-14 pb-8 px-6">
+        <div
+          className="flex flex-col items-center pb-8 px-6 relative"
+          style={{ paddingTop: 'max(56px, calc(env(safe-area-inset-top, 0px) + 20px))' }}
+        >
+          {/* Settings gear — top right */}
+          <button
+            onClick={() => setShowSettings(true)}
+            className="absolute right-5 top-0 w-10 h-10 flex items-center justify-center rounded-full bg-white/15 hover:bg-white/25 active:bg-white/30 transition-colors"
+            style={{ marginTop: 'max(56px, calc(env(safe-area-inset-top, 0px) + 20px))' }}
+            aria-label="Paramètres"
+          >
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
+
           <div className="w-16 h-16 bg-white/15 rounded-3xl flex items-center justify-center mb-5 backdrop-blur-sm">
             <svg viewBox="0 0 24 24" className="w-8 h-8 fill-white">
               <path d="M14 2H6C4.9 2 4 2.9 4 4v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM9 13h6v1.5H9V13zm0 3h4v1.5H9V16zm0-6h2v1.5H9V10z"/>
@@ -150,14 +204,14 @@ export default function UploadStep({ onImageSelected }) {
           </div>
           <h1 className="text-3xl font-bold text-white tracking-tight">Understand</h1>
           <p className="text-white/65 text-center mt-2 text-sm leading-relaxed">
-            Scannez un document · Traduisez-le · Écoutez-le
+            {t.tagline}
           </p>
         </div>
 
         {/* Card */}
         <div className="flex-1 bg-white rounded-t-[32px] px-5 pt-8 pb-10 flex flex-col gap-4">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest text-center mb-1">
-            Étape 1 — Ajoutez votre document
+            {t.step1}
           </p>
 
           {/* Camera */}
@@ -171,8 +225,8 @@ export default function UploadStep({ onImageSelected }) {
               </svg>
             </div>
             <div className="text-left flex-1">
-              <p className="font-bold text-base leading-tight">Prendre une photo</p>
-              <p className="text-white/60 text-sm mt-0.5">Utiliser l'appareil photo</p>
+              <p className="font-bold text-base leading-tight">{t.camera}</p>
+              <p className="text-white/60 text-sm mt-0.5">{t.cameraHint}</p>
             </div>
             <svg className="w-5 h-5 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
@@ -190,8 +244,8 @@ export default function UploadStep({ onImageSelected }) {
               </svg>
             </div>
             <div className="text-left flex-1">
-              <p className="font-bold text-base leading-tight">Choisir depuis la galerie</p>
-              <p className="text-gray-400 text-sm mt-0.5">Photo existante ou fichier PDF</p>
+              <p className="font-bold text-base leading-tight">{t.gallery}</p>
+              <p className="text-gray-400 text-sm mt-0.5">{t.galleryHint}</p>
             </div>
             <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
@@ -213,11 +267,14 @@ export default function UploadStep({ onImageSelected }) {
               </svg>
             </div>
             <p className="text-gray-500 text-xs leading-relaxed">
-              <span className="font-semibold text-gray-700">Formats acceptés :</span>{' '}
-              Photo (JPG, PNG) ou document PDF · Texte bien éclairé et lisible.
+              <span className="font-semibold text-gray-700">{t.formats}</span>{' '}
+              {t.formatsHint}
             </p>
           </div>
         </div>
+
+        {/* Settings modal */}
+        {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       </div>
     )
   }
@@ -234,8 +291,8 @@ export default function UploadStep({ onImageSelected }) {
           </svg>
         </div>
         <div className="text-center">
-          <p className="text-white font-bold text-lg">Conversion PDF…</p>
-          <p className="text-white/60 text-sm mt-1">Lecture de la première page</p>
+          <p className="text-white font-bold text-lg">{t.pdfLoading}</p>
+          <p className="text-white/60 text-sm mt-1">{t.pdfPage}</p>
         </div>
       </div>
     )
@@ -248,8 +305,11 @@ export default function UploadStep({ onImageSelected }) {
     <div className="flex flex-col min-h-screen bg-white">
       {inputs}
 
-      {/* Top bar */}
-      <div className="flex items-center gap-3 px-4 pt-12 pb-4 bg-gradient-to-b from-primary-50 to-white">
+      {/* Top bar — fully opaque */}
+      <div
+        className="flex items-center gap-3 px-4 pb-4 bg-white border-b border-gray-100 shadow-sm"
+        style={{ paddingTop: 'max(48px, calc(env(safe-area-inset-top, 0px) + 12px))' }}
+      >
         <button
           onClick={handleReset}
           className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors"
@@ -260,14 +320,14 @@ export default function UploadStep({ onImageSelected }) {
           </svg>
         </button>
         <div>
-          <h2 className="font-bold text-gray-900 text-lg leading-tight">Votre document</h2>
-          <p className="text-gray-400 text-xs">Étape 1 / 3</p>
+          <h2 className="font-bold text-gray-900 text-lg leading-tight">{t.docTitle}</h2>
+          <p className="text-gray-400 text-xs">{t.docStep}</p>
         </div>
       </div>
 
-      <div className="flex-1 px-4 pb-36 flex flex-col gap-4">
+      <div className="flex-1 px-4 pb-36 flex flex-col gap-4 pt-4">
 
-        {/* Preview container — square so any rotation stays inside */}
+        {/* Preview container */}
         <div className="w-full aspect-square rounded-3xl overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center">
           <img
             src={basePreview}
@@ -275,7 +335,6 @@ export default function UploadStep({ onImageSelected }) {
             className="transition-transform duration-300"
             style={{
               transform:  `rotate(${rotation}deg)`,
-              /* Shrink so rotated image fits in the square box */
               maxWidth:  (rotation === 90 || rotation === 270) ? '70%' : '100%',
               maxHeight: (rotation === 90 || rotation === 270) ? '70%' : '100%',
               objectFit: 'contain',
@@ -291,10 +350,8 @@ export default function UploadStep({ onImageSelected }) {
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 active:bg-gray-300 transition-colors text-gray-700 text-sm font-semibold disabled:opacity-40"
             aria-label="Rotation -90°"
           >
-            {/* Counter-clockwise arrow */}
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5}
-                d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
             <svg className="w-4 h-4 -scale-x-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -323,12 +380,8 @@ export default function UploadStep({ onImageSelected }) {
           </button>
         </div>
 
-        {/* Rotation hint */}
-        <p className="text-center text-xs text-gray-400">
-          Tournez si la photo est prise en paysage
-        </p>
+        <p className="text-center text-xs text-gray-400">{t.rotateTip}</p>
 
-        {/* Change image */}
         <button
           onClick={() => fileInputRef.current?.click()}
           className="flex items-center justify-center gap-2 py-3.5 rounded-2xl border-2 border-gray-200 text-gray-500 font-semibold text-sm hover:bg-gray-50 active:bg-gray-100 transition-colors"
@@ -336,7 +389,7 @@ export default function UploadStep({ onImageSelected }) {
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
-          Changer d'image ou de PDF
+          {t.changeImage}
         </button>
       </div>
 
@@ -352,14 +405,14 @@ export default function UploadStep({ onImageSelected }) {
               <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="3" strokeDasharray="31.4" strokeDashoffset="10"/>
               </svg>
-              Rotation en cours…
+              {t.rotating}
             </>
           ) : (
             <>
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
               </svg>
-              Utiliser cette image
+              {t.useImage}
             </>
           )}
         </button>

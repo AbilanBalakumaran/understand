@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { TARGET_LANGUAGES, SOURCE_LANGUAGES } from '../data/languages'
+import { useAppLang } from '../context/AppLang'
 
 const STORAGE_KEY = 'understand_lastTargetLang'
 
@@ -16,6 +17,41 @@ function saveLastTarget(lang) {
   try { localStorage.setItem(STORAGE_KEY, lang.code) } catch {}
 }
 
+const UI = {
+  fr: {
+    title:        'Choisissez votre langue',
+    step:         'Étape 2 / 3',
+    docLang:      'Langue du document',
+    detecting:    'Détection de la langue en cours…',
+    autoDetected: 'Auto-détecté',
+    editable:     'Modifiable ci-dessous',
+    detected:     'Détecté',
+    auto:         'Auto',
+    yourLang:     "Votre langue — l'audio sera dans cette langue",
+    saved:        'Mémorisée',
+    search:       'Rechercher une langue…',
+    noResult:     (q) => `Aucune langue trouvée pour « ${q} »`,
+    selected:     'Langue sélectionnée',
+    create:       "Créer l'audio",
+  },
+  en: {
+    title:        'Choose your language',
+    step:         'Step 2 / 3',
+    docLang:      'Document language',
+    detecting:    'Detecting language…',
+    autoDetected: 'Auto-detected',
+    editable:     'Editable below',
+    detected:     'Detected',
+    auto:         'Auto',
+    yourLang:     'Your language — audio will be in this language',
+    saved:        'Saved',
+    search:       'Search a language…',
+    noResult:     (q) => `No language found for "${q}"`,
+    selected:     'Selected language',
+    create:       'Create audio',
+  },
+}
+
 export default function LanguageSelect({
   imagePreview,
   onConfirm,
@@ -23,6 +59,9 @@ export default function LanguageSelect({
   detectedLang,   // SOURCE_LANGUAGES object | null
   isDetecting,    // boolean
 }) {
+  const { lang: appLang } = useAppLang()
+  const t = UI[appLang] || UI.fr
+
   const [search, setSearch]             = useState('')
   const [selectedTarget, setSelectedTarget] = useState(() => loadLastTarget())
   const [selectedSource, setSelectedSource] = useState(SOURCE_LANGUAGES[1]) // French default
@@ -35,11 +74,16 @@ export default function LanguageSelect({
     }
   }, [detectedLang, isDetecting])
 
+  const langName = (l) => appLang === 'fr' ? (l.nameFr || l.name) : l.name
+
   const filteredLanguages = useMemo(() => {
     const q = search.toLowerCase().trim()
     if (!q) return TARGET_LANGUAGES
     return TARGET_LANGUAGES.filter(
-      (l) => l.name.toLowerCase().includes(q) || l.code.toLowerCase().includes(q)
+      (l) =>
+        l.name.toLowerCase().includes(q) ||
+        (l.nameFr && l.nameFr.toLowerCase().includes(q)) ||
+        l.code.toLowerCase().includes(q)
     )
   }, [search])
 
@@ -56,8 +100,11 @@ export default function LanguageSelect({
   return (
     <div className="flex flex-col min-h-screen bg-white">
 
-      {/* ── Top bar ── */}
-      <div className="flex items-center gap-3 px-4 pt-12 pb-4 bg-gradient-to-b from-primary-50 to-white sticky top-0 z-10">
+      {/* ── Top bar — fully opaque so content never shows through ── */}
+      <div
+        className="flex items-center gap-3 px-4 pb-4 bg-white border-b border-gray-100 sticky top-0 z-10 shadow-sm"
+        style={{ paddingTop: 'max(48px, calc(env(safe-area-inset-top, 0px) + 12px))' }}
+      >
         <button
           onClick={onBack}
           className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors"
@@ -68,8 +115,8 @@ export default function LanguageSelect({
           </svg>
         </button>
         <div>
-          <h2 className="font-bold text-gray-900 text-lg leading-tight">Choisissez votre langue</h2>
-          <p className="text-gray-400 text-xs">Étape 2 / 3</p>
+          <h2 className="font-bold text-gray-900 text-lg leading-tight">{t.title}</h2>
+          <p className="text-gray-400 text-xs">{t.step}</p>
         </div>
         {imagePreview && (
           <img src={imagePreview} alt="document" className="ml-auto w-10 h-12 object-cover rounded-xl border border-gray-200" />
@@ -81,7 +128,7 @@ export default function LanguageSelect({
         {/* ── Source language ── */}
         <div className="mb-6">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2.5">
-            Langue du document
+            {t.docLang}
           </p>
 
           {/* Detection spinner */}
@@ -91,7 +138,7 @@ export default function LanguageSelect({
                 <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"
                   strokeDasharray="31.4" strokeDashoffset="10" strokeLinecap="round"/>
               </svg>
-              <p className="text-sm text-primary-700 font-medium">Détection de la langue en cours…</p>
+              <p className="text-sm text-primary-700 font-medium">{t.detecting}</p>
             </div>
           )}
 
@@ -102,9 +149,9 @@ export default function LanguageSelect({
                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                 </svg>
-                Auto-détecté
+                {t.autoDetected}
               </span>
-              <p className="text-xs text-gray-400">Modifiable ci-dessous</p>
+              <p className="text-xs text-gray-400">{t.editable}</p>
             </div>
           )}
 
@@ -114,9 +161,9 @@ export default function LanguageSelect({
             className="flex items-center gap-3 w-full bg-gray-50 hover:bg-gray-100 active:bg-gray-200 rounded-2xl px-4 py-3.5 border border-gray-200 transition-colors"
           >
             <span className="text-xl">{selectedSource.flag}</span>
-            <span className="text-gray-700 font-semibold text-sm flex-1 text-left">{selectedSource.name}</span>
+            <span className="text-gray-700 font-semibold text-sm flex-1 text-left">{langName(selectedSource)}</span>
             {detectedLang && selectedSource.code === detectedLang.code && !isDetecting && (
-              <span className="text-xs text-primary-600 font-semibold bg-primary-50 px-2 py-0.5 rounded-full">Détecté</span>
+              <span className="text-xs text-primary-600 font-semibold bg-primary-50 px-2 py-0.5 rounded-full">{t.detected}</span>
             )}
             <svg
               className={`w-4 h-4 text-gray-400 transition-transform ${showSourcePicker ? 'rotate-180' : ''}`}
@@ -137,9 +184,9 @@ export default function LanguageSelect({
                   }`}
                 >
                   <span className="text-xl">{lang.flag}</span>
-                  <span className="text-sm text-gray-700 font-medium flex-1">{lang.name}</span>
+                  <span className="text-sm text-gray-700 font-medium flex-1">{langName(lang)}</span>
                   {lang.code === detectedLang?.code && (
-                    <span className="text-xs text-green-600 font-semibold mr-1">Auto</span>
+                    <span className="text-xs text-green-600 font-semibold mr-1">{t.auto}</span>
                   )}
                   {selectedSource.code === lang.code && (
                     <svg className="w-4 h-4 text-primary-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -156,11 +203,11 @@ export default function LanguageSelect({
         <div>
           <div className="flex items-center justify-between mb-2.5">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
-              Votre langue — l'audio sera dans cette langue
+              {t.yourLang}
             </p>
             {selectedTarget && (
               <span className="text-xs text-primary-600 font-semibold">
-                {selectedTarget.flag} Mémorisée
+                {selectedTarget.flag} {t.saved}
               </span>
             )}
           </div>
@@ -174,7 +221,7 @@ export default function LanguageSelect({
             </svg>
             <input
               type="text"
-              placeholder="Rechercher une langue…"
+              placeholder={t.search}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-10 pr-4 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
@@ -199,7 +246,7 @@ export default function LanguageSelect({
                 >
                   <span className="text-2xl leading-none">{lang.flag}</span>
                   <span className={`text-xs font-medium text-center leading-tight line-clamp-2 ${isSelected ? 'text-white' : 'text-gray-600'}`}>
-                    {lang.name}
+                    {langName(lang)}
                   </span>
                   {isSelected && (
                     <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 20 20">
@@ -211,7 +258,7 @@ export default function LanguageSelect({
             })}
             {filteredLanguages.length === 0 && (
               <div className="col-span-3 py-10 text-center text-gray-400 text-sm">
-                Aucune langue trouvée pour « {search} »
+                {t.noResult(search)}
               </div>
             )}
           </div>
@@ -224,8 +271,8 @@ export default function LanguageSelect({
           <div className="flex items-center gap-3 mb-3 bg-primary-50 rounded-2xl px-4 py-3 border border-primary-100">
             <span className="text-xl">{selectedTarget.flag}</span>
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-gray-400">Langue sélectionnée</p>
-              <p className="text-sm font-bold text-primary-700 truncate">{selectedTarget.name}</p>
+              <p className="text-xs text-gray-400">{t.selected}</p>
+              <p className="text-sm font-bold text-primary-700 truncate">{langName(selectedTarget)}</p>
             </div>
             <svg className="w-5 h-5 text-primary-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -246,7 +293,7 @@ export default function LanguageSelect({
           <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
             <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
           </svg>
-          Créer l'audio
+          {t.create}
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
           </svg>

@@ -15,8 +15,17 @@ html, body, #root {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background: #F4F6FF;
+  /* Cobalt blue prevents the white flash before React mounts and fills the
+     safe-area gap at the top on iOS black-translucent status bars. */
+  background: #2E5BFF;
   overscroll-behavior: none;
+}
+
+/* After the app shell loads, the #root fills the screen and the blue body
+   background is no longer visible. On the upload step the hero gradient
+   already covers the top; on other steps the header covers it. */
+#root {
+  background: #F4F6FF;
 }
 
 @layer utilities {
@@ -107,3 +116,10 @@ input:focus-visible  { outline: 2px solid #2E5BFF; outline-offset: 1px; }
   to   { opacity: 1; transform: translateY(0); }
 }
 .fade-up { animation: fade-up 0.3s ease-out both; }
+
+/* Settings modal slide-up */
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.animate-slide-up { animation: slide-up 0.28s cubic-bezier(0.32, 0.72, 0, 1) both; }
