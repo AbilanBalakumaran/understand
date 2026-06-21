@@ -175,7 +175,7 @@ export default function UploadStep({ onImageSelected }) {
   ══════════════════════════════════════════════════════ */
   if (!preview && !isConvertingPdf) {
     return (
-      <div className="flex flex-col min-h-screen bg-gradient-to-b from-primary-700 to-primary-500">
+      <div className="flex flex-col min-h-screen" style={{ background: 'var(--color-brand)' }}>
         {inputs}
 
         {/* Hero */}
@@ -284,7 +284,7 @@ export default function UploadStep({ onImageSelected }) {
   ══════════════════════════════════════════════════════ */
   if (isConvertingPdf) {
     return (
-      <div className="flex flex-col min-h-screen bg-gradient-to-b from-primary-700 to-primary-500 items-center justify-center gap-6 px-8">
+      <div className="flex flex-col min-h-screen items-center justify-center gap-6 px-8" style={{ background: 'var(--color-brand)' }}>
         <div className="w-16 h-16 rounded-3xl bg-white/15 flex items-center justify-center">
           <svg className="w-8 h-8 fill-white spin-slow" viewBox="0 0 24 24">
             <path d="M14 2H6C4.9 2 4 2.9 4 4v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>

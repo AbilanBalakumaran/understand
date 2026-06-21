@@ -75,9 +75,10 @@ export default function App() {
   const [error, setError]                       = useState(null)
 
   // ── Language detection ──────────────────────────────────────────
-  const [detectedSourceLang, setDetectedSourceLang] = useState(null)
-  const [isDetecting, setIsDetecting]               = useState(false)
-  const detectAbortRef                              = useRef(false)
+  const [detectedSourceLang, setDetectedSourceLang]     = useState(null)
+  const [detectionConfidence, setDetectionConfidence]   = useState(1)
+  const [isDetecting, setIsDetecting]                   = useState(false)
+  const detectAbortRef                                  = useRef(false)
 
   // Scroll to top on every step change
   useEffect(() => {
@@ -92,11 +93,12 @@ export default function App() {
     setIsDetecting(true)
     setDetectedSourceLang(null)
 
-    detectImageLanguage(imageFile).then((code) => {
+    detectImageLanguage(imageFile).then((result) => {
       if (detectAbortRef.current) return
-      if (code) {
-        const lang = SOURCE_LANGUAGES.find((l) => l.code === code) || null
+      if (result) {
+        const lang = SOURCE_LANGUAGES.find((l) => l.code === result.code) || null
         setDetectedSourceLang(lang)
+        setDetectionConfidence(result.confidence ?? 1)
       }
       setIsDetecting(false)
     })
@@ -165,6 +167,7 @@ export default function App() {
     setIsProcessing(false)
     setError(null)
     setDetectedSourceLang(null)
+    setDetectionConfidence(1)
     setIsDetecting(false)
   }
 
@@ -178,7 +181,7 @@ export default function App() {
           This fixed div fills that gap with our cobalt blue so the
           bar always matches the rest of the app. On Android / desktop
           its height is 0 and it has no visual effect. */}
-      <div className="fixed top-0 left-0 right-0 bg-primary-600 z-[9997] safe-top-h" />
+      <div className="fixed top-0 left-0 right-0 z-[9997] safe-top-h" style={{ background: 'var(--color-brand)' }} />
 
       <div className="max-w-md mx-auto relative min-h-screen">
         {step === STEP.UPLOAD && (
@@ -197,6 +200,7 @@ export default function App() {
             onBack={() => setStep(STEP.UPLOAD)}
             detectedLang={detectedSourceLang}
             isDetecting={isDetecting}
+            detectionConfidence={detectionConfidence}
           />
         )}
 

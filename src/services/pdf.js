@@ -67,3 +67,31 @@ export function isPdf(file) {
     file?.name?.toLowerCase().endsWith('.pdf')
   )
 }
+
+/**
+ * Attempts to extract native text from a PDF (up to maxPages pages).
+ * Returns the text if the PDF is text-based, or null if it is scanned/image-only.
+ */
+export async function extractPdfNativeText(file, maxPages = 5) {
+  try {
+    const pdfjs       = await loadPdfJs()
+    const arrayBuffer = await file.arrayBuffer()
+    const pdf         = await pdfjs.getDocument({ data: arrayBuffer }).promise
+    const total       = Math.min(pdf.numPages, maxPages)
+
+    let fullText = ''
+    for (let i = 1; i <= total; i++) {
+      const page    = await pdf.getPage(i)
+      const content = await page.getTextContent()
+      const pageText = content.items.map((item) => item.str).join(' ')
+      fullText += pageText + '\n'
+    }
+
+    const cleaned    = fullText.trim()
+    const letterCount = (cleaned.match(/\p{L}/gu) || []).length
+    // Fewer than 80 letters → treat as scanned (no usable native text)
+    return letterCount >= 80 ? cleaned : null
+  } catch {
+    return null
+  }
+}

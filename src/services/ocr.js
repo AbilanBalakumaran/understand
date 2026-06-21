@@ -1,17 +1,18 @@
 import { createWorker } from 'tesseract.js'
+import { detectAll as tinyldDetectAll } from 'tinyld'
+import { isPdf, extractPdfNativeText } from './pdf'
 
-/**
- * Extract text from an image using Tesseract OCR.
- */
+// ─── OCR text extraction (main translation pipeline) ─────────────────────────
+
 export async function extractText(image, langCode = 'eng', onProgress) {
   const worker = await createWorker(langCode, 1, {
     logger: (m) => {
-      if (m.status === 'recognizing text')                onProgress?.(Math.round(m.progress * 100))
-      else if (m.status === 'loading tesseract core')     onProgress?.(5)
-      else if (m.status === 'initializing tesseract')     onProgress?.(10)
+      if (m.status === 'recognizing text')              onProgress?.(Math.round(m.progress * 100))
+      else if (m.status === 'loading tesseract core')   onProgress?.(5)
+      else if (m.status === 'initializing tesseract')   onProgress?.(10)
       else if (m.status === 'loading language traineddata') onProgress?.(20)
-      else if (m.status === 'initializing api')           onProgress?.(30)
-    }
+      else if (m.status === 'initializing api')         onProgress?.(30)
+    },
   })
   try {
     const { data } = await worker.recognize(image)
@@ -21,18 +22,55 @@ export async function extractText(image, langCode = 'eng', onProgress) {
   }
 }
 
-// ─── Language detection ───────────────────────────────────────────────────────
+// ─── Tesseract OSD script name → Tesseract lang code ─────────────────────────
 
-/**
- * Detect script family directly from Unicode character ranges in OCR text.
- * Avoids the OSD model entirely — more reliable for mixed or low-confidence docs.
- */
-function detectScriptFromText(text) {
-  const nonSpace = text.replace(/\s/g, '')
-  if (nonSpace.length < 6) return null
+const OSD_SCRIPT_TO_CODE = {
+  Arabic:     'ara',
+  Cyrillic:   'rus',
+  Hangul:     'kor',
+  Hiragana:   'jpn',
+  Katakana:   'jpn',
+  Han:        'chi_sim',
+  Devanagari: 'hin',
+  Tamil:      'tam',
+  Telugu:     'tel',
+  Kannada:    'kan',
+  Malayalam:  'mal',
+  Thai:       'tha',
+  Hebrew:     'heb',
+  Greek:      'ell',
+  Georgian:   'kat',
+  Armenian:   'arm',
+  Ethiopic:   'amh',
+  Khmer:      'khm',
+  Sinhala:    'sin',
+  Myanmar:    'mya',
+  Tibetan:    'tib',
+}
 
-  const count = (regex) => (text.match(regex) || []).length
-  const ratio = (n) => n / nonSpace.length
+// ─── tinyld ISO 639-1 → Tesseract code ───────────────────────────────────────
+
+const ISO1_TO_TESSERACT = {
+  fr: 'fra',  en: 'eng',  es: 'spa',  de: 'deu',  it: 'ita',
+  pt: 'por',  nl: 'nld',  ru: 'rus',  ar: 'ara',
+  zh: 'chi_sim', ja: 'jpn', ko: 'kor', tr: 'tur',  pl: 'pol',
+  uk: 'ukr',  sv: 'swe',  da: 'dan',  fi: 'fin',  nb: 'nor',
+  no: 'nor',  cs: 'ces',  sk: 'slk',  ro: 'ron',  hu: 'hun',
+  hr: 'hrv',  bg: 'bul',  sr: 'srp',  mk: 'mkd',  sl: 'slv',
+  et: 'est',  lv: 'lav',  lt: 'lit',  el: 'ell',  he: 'heb',
+  ca: 'cat',  eu: 'eus',  gl: 'glg',  af: 'afr',  id: 'ind',
+  ms: 'msa',  tl: 'tgl',  vi: 'vie',  th: 'tha',
+}
+
+// ─── Unicode script analysis (handles non-Latin without needing OCR) ──────────
+// Returns a Tesseract code when a non-Latin script dominates the text.
+
+function detectDominantScript(text) {
+  const ns = text.replace(/\s/g, '')
+  if (ns.length < 10) return null
+
+  const count = (re) => (text.match(re) || []).length
+  const r     = (n)  => n / ns.length
 
   const arabic    = count(/[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/g)
   const cyrillic  = count(/[Ѐ-ӿ]/g)
@@ -40,178 +78,175 @@ function detectScriptFromText(text) {
   const hiragana  = count(/[぀-ゟ]/g)
   const katakana  = count(/[゠-ヿ]/g)
   const cjk       = count(/[一-鿿㐀-䶿]/g)
-  const devanagari= count(/[ऀ-ॿ]/g)
-  const hebrew    = count(/[֐-׿]/g)
+  const devan     = count(/[ऀ-ॿ]/g)
+  const tamil     = count(/[஀-௿]/g)
   const thai      = count(/[฀-๿]/g)
+  const hebrew    = count(/[א-׿]/g)
+  const greek     = count(/[Ͱ-Ͽ]/g)
+  const georgian  = count(/[Ⴀ-ჿ]/g)
+  const armenian  = count(/[԰-֏]/g)
+  const ethiopic  = count(/[ሀ-፿]/g)
+  const khmer     = count(/[ក-៿]/g)
+  const sinhala   = count(/[඀-෿]/g)
+  const myanmar   = count(/[က-႟]/g)
+  const telugu    = count(/[ఀ-౿]/g)
+  const kannada   = count(/[ಀ-೿]/g)
+  const malayalam = count(/[ഀ-ൿ]/g)
 
-  if (ratio(arabic)    > 0.12) return 'ara'
-  if (ratio(cyrillic)  > 0.12) return 'rus'
-  if (ratio(hangul)    > 0.08) return 'kor'
-  if (ratio(hiragana + katakana) > 0.06) return 'jpn'
-  if (ratio(cjk)       > 0.08) return 'chi_sim'
-  if (ratio(devanagari)> 0.08) return 'hin'  // not in SOURCE_LANGUAGES yet, but future-proof
-  if (ratio(hebrew)    > 0.08) return null    // Hebrew not in source list
-  if (ratio(thai)      > 0.08) return null    // Thai not in source list
+  if (r(arabic)              > 0.10) return 'ara'
+  if (r(cyrillic)            > 0.10) return 'rus'
+  if (r(hangul)              > 0.06) return 'kor'
+  if (r(hiragana + katakana) > 0.04) return 'jpn'
+  if (r(cjk)                 > 0.06) return 'chi_sim'
+  if (r(devan)               > 0.08) return 'hin'
+  if (r(tamil)               > 0.08) return 'tam'
+  if (r(thai)                > 0.08) return 'tha'
+  if (r(hebrew)              > 0.08) return 'heb'
+  if (r(greek)               > 0.08) return 'ell'
+  if (r(georgian)            > 0.08) return 'kat'
+  if (r(armenian)            > 0.08) return 'arm'
+  if (r(ethiopic)            > 0.08) return 'amh'
+  if (r(khmer)               > 0.08) return 'khm'
+  if (r(sinhala)             > 0.08) return 'sin'
+  if (r(myanmar)             > 0.08) return 'mya'
+  if (r(telugu)              > 0.08) return 'tel'
+  if (r(kannada)             > 0.08) return 'kan'
+  if (r(malayalam)           > 0.08) return 'mal'
 
-  return null // Latin or undetermined — proceed to stop-word analysis
+  return null
 }
 
-/**
- * Extended stop-word lists per language.
- * Unaccented variants included so OCR errors with the English model don't break matching.
- */
-const LANG_MARKERS = {
-  fra: [
-    'le','la','les','un','une','du','des','et','en','est','pas','qui','que',
-    'au','aux','pour','dans','sur','avec','mais','plus','tout','cette','vous',
-    'nous','ils','son','par','ont','ces','je','tu','il','elle','meme','aussi',
-    'bien','comme','si','car','ou','donc','leur','leurs','tres','ca','etre',
-    'avez','avons','avoir','fait','faire','dit','voir','grand','petit','non',
-  ],
-  eng: [
-    'the','is','are','and','to','of','in','a','that','it','was','for','on',
-    'with','this','from','not','or','by','be','at','have','an','we','he',
-    'she','they','his','her','as','do','but','all','if','its','so','been',
-    'were','has','had','would','could','should','will','our','their','there',
-    'which','who','what','when','where','how','can','may','just','about',
-  ],
-  spa: [
-    'el','los','las','del','con','por','una','este','esta','como','pero',
-    'que','sus','ser','cuando','donde','mas','anos','para','muy','todo',
-    'sin','entre','cada','sobre','hasta','lo','se','le','en','al','hay',
-    'mi','tu','su','nos','les','son','han','fue','era','es','del','algo',
-    'bien','aqui','si','no','ya','yo','ellos','ellas','usted',
-  ],
-  deu: [
-    'der','die','das','ein','eine','und','ist','zu','mit','auf','fur','fuer',
-    'dass','aber','sich','nicht','von','den','dem','des','bei','werden',
-    'haben','nach','oder','auch','wenn','wird','im','am','aus','an','es',
-    'ich','wir','sie','er','hat','war','wie','so','noch','nur','als','sehr',
-    'dann','durch','hier','bis','kann','mehr','man','noch','beim','zur',
-  ],
-  ita: [
-    'il','lo','gli','una','dei','con','per','sono','come','anche','dalla',
-    'nella','dello','questo','hanno','alla','che','del','nel','non','piu',
-    'tutti','dove','quando','molto','ma','se','io','tu','lui','lei','noi',
-    'era','sta','sua','suo','le','la','un','di','da','in','ed','si','hai',
-    'abbiamo','essere','fare','cosa','bene','dopo','prima','ancora',
-  ],
-  por: [
-    'uma','dos','das','com','por','sao','seu','sua','como','mas','pelo',
-    'pela','para','que','nao','mais','seus','suas','todo','este','esta',
-    'ele','ela','nos','eles','ao','na','no','se','te','me','lhe','foi',
-    'tem','ser','ter','isso','aqui','ja','bem','um','eu','tu','voce',
-    'muito','pode','fazer','grande','novo','outro','mesmo',
-  ],
-  nld: [
-    'de','het','een','van','en','in','is','dat','op','te','met','niet',
-    'zijn','aan','ook','was','voor','bij','er','maar','als','heeft','worden',
-    'om','ze','we','hij','haar','hun','dit','tot','al','nog','naar','worden',
-    'dan','meer','kan','hebben','worden','zo','want',
-  ],
-  pol: [
-    'sie','nie','jest','jak','co','to','na','tak','ale','juz','czy','po',
-    'do','ze','ten','ktory','tego','tym','jego','jej','tylko','i','w','z',
-    'go','ma','tu','tego','tej','tych','tym','przez','przy','bez','pod',
-    'nad','przed','za','po','od','do','ze','czy','bo','lub','ani',
-  ],
-  tur: [
-    'bir','ve','bu','da','de','icin','ile','ne','ben','sen','var',
-    'olan','daha','cok','gibi','kadar','en','ki','mi','o','ise',
-    'bu','su','o','biz','siz','onlar','ama','ya','ile','hem','veya',
-  ],
-  rus: [
-    'i','v','ne','na','ya','chto','s','po','eto','on','ona','oni',
-    'my','vy','kak','no','iz','za','to','ego','ee','ih','net',
-  ],
-  ukr: [
-    'i','v','ne','na','ya','shcho','z','po','tse','vin','vona','vony',
-    'my','vy','yak','ale','iz','za','to','yoho','yiyi','yikh','ni',
-  ],
+// ─── Text cleaning for tinyld (removes OCR noise without stop-word lists) ─────
+
+function cleanForDetection(text) {
+  return text
+    .replace(/[^\p{L}\s]/gu, ' ')  // keep only letters and spaces
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
-/**
- * Score text against all known language stop-word lists.
- */
+// ─── Chunk-based tinyld detection with majority vote ─────────────────────────
+
 function detectLatinLanguage(text) {
-  const words = text.toLowerCase()
-    .match(/\b[a-zÀ-ɏ]{2,}\b/g) || []
+  const cleaned = cleanForDetection(text)
+  if (cleaned.replace(/\s/g, '').length < 15) return null
 
-  const ascii = text.toLowerCase().match(/\b[a-z]{2,}\b/g) || []
-  const wordSet = new Set([...words, ...ascii])
+  const len    = cleaned.length
+  let   chunks
 
-  if (wordSet.size < 3) return null
-
-  const scores = {}
-  for (const [lang, markers] of Object.entries(LANG_MARKERS)) {
-    scores[lang] = markers.filter(w => wordSet.has(w)).length
+  if (len < 200) {
+    chunks = [cleaned]
+  } else {
+    const size = Math.min(Math.floor(len / 3), 500)
+    const mid  = Math.floor(len / 2)
+    chunks = [
+      cleaned.slice(0, size),
+      cleaned.slice(mid - Math.floor(size / 2), mid + Math.floor(size / 2)),
+      cleaned.slice(len - size),
+    ].filter((c) => c.trim().length >= 20)
   }
 
-  const sorted = Object.entries(scores).sort(([, a], [, b]) => b - a)
-  const [best, bestScore] = sorted[0]
-  const [, secondScore]   = sorted[1] || [null, 0]
+  const votes       = {}
+  let   totalWeight = 0
 
-  if (bestScore < 2) return null
-  // Allow a tie only if both are very high (both score ≥ 5 means we pick the first)
-  if (bestScore === secondScore && bestScore < 5) return null
-  // Russian detection via stop-words is unreliable (transliteration noise)
-  if (best === 'rus' || best === 'ukr') return null
+  for (const chunk of chunks) {
+    const results = tinyldDetectAll(chunk)
+    if (!results.length) continue
+    const { lang, accuracy } = results[0]
+    if (accuracy < 0.15) continue
+    votes[lang]  = (votes[lang] || 0) + accuracy
+    totalWeight += accuracy
+  }
 
-  return best
+  if (!totalWeight) return null
+
+  const [[bestLang, bestWeight]] = Object.entries(votes).sort(([, a], [, b]) => b - a)
+  const confidence   = bestWeight / totalWeight
+  const tesseractCode = ISO1_TO_TESSERACT[bestLang]
+  if (!tesseractCode) return null
+
+  return { code: tesseractCode, confidence }
 }
 
-/**
- * Map Tesseract stop-word lang codes → SOURCE_LANGUAGES codes
- */
-const STOPWORD_TO_SOURCE = {
-  fra: 'fra',
-  eng: 'eng',
-  spa: 'spa',
-  deu: 'deu',
-  ita: 'ita',
-  por: 'por',
-  nld: 'nld',
-  pol: 'pol',
-  tur: 'tur',
-}
+// ─── Tesseract OSD pass (script detection only, no full OCR) ─────────────────
 
-/**
- * Attempts to detect the source language of a document image.
- *
- * Strategy:
- *  1. Run a quick OCR pass with the English model to get raw text.
- *  2. Analyze Unicode character distribution to detect non-Latin scripts
- *     (Arabic, Cyrillic, CJK, Hangul, Hiragana…) without needing OSD.
- *  3. For Latin-script text: apply stop-word frequency analysis across
- *     10 languages.
- */
-export async function detectImageLanguage(image) {
-  let worker = null
+async function detectScriptViaOsd(image) {
   try {
-    worker = await createWorker('eng', 1, { logger: () => {} })
-    const { data } = await worker.recognize(image)
-
-    // Accept even low-confidence OCR — non-Latin scripts will still
-    // produce recognizable Unicode characters that we can count.
-    if (data.confidence < 10) return null
-
-    const text     = data.text
-    const nonSpace = text.replace(/\s/g, '')
-    if (nonSpace.length < 6) return null
-
-    // Step 1: Unicode script detection (beats OSD for reliability)
-    const scriptLang = detectScriptFromText(text)
-    if (scriptLang) return scriptLang
-
-    // Step 2: Latin-script stop-word analysis
-    const latinCount = (nonSpace.match(/[a-zA-ZÀ-ɏ]/g) || []).length
-    if (latinCount / nonSpace.length < 0.40) return null
-
-    const detected = detectLatinLanguage(text)
-    return detected ? (STOPWORD_TO_SOURCE[detected] || detected) : null
+    const worker = await createWorker('osd', 1, { logger: () => {} })
+    try {
+      const { data } = await worker.detect(image)
+      return data?.script ?? null
+    } finally {
+      await worker.terminate()
+    }
   } catch {
     return null
+  }
+}
+
+// ─── Quick OCR pass for Latin text (used only when OSD says Latin/Unknown) ────
+
+async function runQuickOcr(image) {
+  const worker = await createWorker('eng', 1, { logger: () => {} })
+  try {
+    const { data } = await worker.recognize(image)
+    const ns = data.text.replace(/\s/g, '')
+    if (data.confidence < 8 || ns.length < 10) return null
+    return data.text
   } finally {
-    try { await worker?.terminate() } catch {}
+    await worker.terminate()
+  }
+}
+
+// ─── Main language detection ──────────────────────────────────────────────────
+// Returns { code: string, confidence: number } | null
+//   code       — Tesseract language code ('fra', 'eng', 'chi_sim', …)
+//   confidence — 0–1; values < 0.55 trigger a confirmation prompt in the UI
+
+export async function detectImageLanguage(file) {
+  try {
+    // ── A. PDF with native text layer → extract directly, skip OCR ──────────
+    if (file instanceof File && isPdf(file)) {
+      const nativeText = await extractPdfNativeText(file)
+      if (nativeText) {
+        const scriptCode = detectDominantScript(nativeText)
+        if (scriptCode) return { code: scriptCode, confidence: 0.93 }
+        const result = detectLatinLanguage(nativeText)
+        if (result) return result
+        // fall through to OCR if text wasn't usable
+      }
+    }
+
+    // ── B. OSD: identify script without full OCR ─────────────────────────────
+    const osdScript = await detectScriptViaOsd(file)
+    if (
+      osdScript &&
+      osdScript !== 'Latin' &&
+      osdScript !== 'Common' &&
+      osdScript !== 'Unknown' &&
+      osdScript !== ''
+    ) {
+      const code = OSD_SCRIPT_TO_CODE[osdScript]
+      if (code) return { code, confidence: 0.90 }
+    }
+
+    // ── C. Image or scanned PDF → run OCR ────────────────────────────────────
+    const ocrText = await runQuickOcr(file)
+    if (!ocrText) return null
+
+    // ── D. Unicode analysis on OCR output (catches OSD misses) ───────────────
+    const scriptCode = detectDominantScript(ocrText)
+    if (scriptCode) return { code: scriptCode, confidence: 0.85 }
+
+    // ── E. Require minimum Latin character proportion ─────────────────────────
+    const ns         = ocrText.replace(/\s/g, '')
+    const latinCount = (ns.match(/[a-zA-ZÀ-ɏ]/g) || []).length
+    if (latinCount / ns.length < 0.30) return null
+
+    // ── F–I. tinyld chunk detection with majority vote ────────────────────────
+    return detectLatinLanguage(ocrText)
+
+  } catch {
+    return null
   }
 }

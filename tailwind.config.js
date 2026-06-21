@@ -11,6 +11,7 @@ export default {
           300: '#94ACFF',
           400: '#6080FF',
           500: '#2E5BFF',
+          // primary-600 = --color-brand : single source of truth in index.css :root
           600: '#1A44E8',
           700: '#1230C0',
           800: '#0C1FA0',
