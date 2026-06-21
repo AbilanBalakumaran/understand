@@ -2,32 +2,7 @@ import { createWorker } from 'tesseract.js'
 import { detectAll as tinyldDetectAll } from 'tinyld'
 import { isPdf, extractPdfNativeText } from './pdf'
 
-// ─── OCR text extraction (main translation pipeline) ─────────────────────────
-
-/**
- * Multilingual OCR — no source language needed from the user.
- * Internally detects the dominant script via OSD and picks the right
- * Tesseract model. Falls back to a broad Latin multi-language pack.
- */
-export async function extractTextAuto(image, onProgress) {
-  // Detect script first (fast, no full OCR)
-  const osdScript = await detectScriptViaOsd(image)
-
-  let langCode = 'eng+fra+deu+spa+ita+por+nld+pol+ces+ron+hun+tur'
-
-  if (
-    osdScript &&
-    osdScript !== 'Latin' &&
-    osdScript !== 'Common' &&
-    osdScript !== 'Unknown' &&
-    osdScript !== ''
-  ) {
-    const code = OSD_SCRIPT_TO_CODE[osdScript]
-    if (code) langCode = code
-  }
-
-  return extractText(image, langCode, onProgress)
-}
+// ─── OCR text extraction ──────────────────────────────────────────────────────
 
 export async function extractText(image, langCode = 'eng', onProgress) {
   const worker = await createWorker(langCode, 1, {
@@ -88,7 +63,6 @@ const ISO1_TO_TESSERACT = {
 }
 
 // ─── Unicode script analysis ──────────────────────────────────────────────────
-// Covers non-Latin scripts reliably via character range counting.
 
 function detectDominantScript(text) {
   const ns = text.replace(/\s/g, '')
@@ -141,11 +115,9 @@ function detectDominantScript(text) {
   return null
 }
 
-// ─── Chunk-based tinyld detection with majority vote ─────────────────────────
+// ─── tinyld chunk detection with majority vote ────────────────────────────────
 
 function detectLatinLanguage(text) {
-  // Keep letters AND spaces — preserve sentence structure for accurate n-gram analysis.
-  // Numbers and punctuation are removed only to avoid skewing trigrams.
   const cleaned = text
     .replace(/\d+/g, ' ')
     .replace(/[^\p{L}\s]/gu, ' ')
@@ -176,7 +148,6 @@ function detectLatinLanguage(text) {
   for (const chunk of chunks) {
     const results = tinyldDetectAll(chunk)
     if (!results.length) continue
-    // Accept even low-accuracy detections — we aggregate across chunks
     const { lang, accuracy } = results[0]
     if (accuracy < 0.03) continue
     votes[lang]  = (votes[lang] || 0) + accuracy
@@ -186,20 +157,17 @@ function detectLatinLanguage(text) {
   if (!totalWeight) return null
 
   const sorted   = Object.entries(votes).sort(([, a], [, b]) => b - a)
-  const [[bestLang, bestWeight]] = sorted
-  const confidence    = bestWeight / totalWeight
+  const [[bestLang]] = sorted
   const tesseractCode = ISO1_TO_TESSERACT[bestLang]
   if (!tesseractCode) return null
 
-  return { code: tesseractCode, confidence }
+  return { code: tesseractCode, lang: bestLang }
 }
 
-// ─── Tesseract OSD — script detection without full OCR ───────────────────────
-// IMPORTANT: worker.detect() requires OEM=0 (Legacy), NOT OEM=1 (LSTM).
+// ─── Tesseract OSD — script detection ────────────────────────────────────────
 
 async function detectScriptViaOsd(image) {
   try {
-    // OEM=0 → Tesseract Legacy engine, required by worker.detect()
     const worker = await createWorker('osd', 0, { logger: () => {} })
     try {
       const { data } = await worker.detect(image)
@@ -212,7 +180,7 @@ async function detectScriptViaOsd(image) {
   }
 }
 
-// ─── Quick OCR for Latin text extraction ─────────────────────────────────────
+// ─── Quick OCR for Latin text sampling ───────────────────────────────────────
 
 async function runQuickOcr(image) {
   const worker = await createWorker('eng', 1, { logger: () => {} })
@@ -226,28 +194,64 @@ async function runQuickOcr(image) {
   }
 }
 
-// ─── Main language detection ──────────────────────────────────────────────────
-// Returns { code: string, confidence: number } | null
-//   code       — Tesseract language code ('fra', 'eng', 'chi_sim', …)
-//   confidence — 0–1; values < 0.55 trigger a confirmation prompt in the UI
+// ─── Multilingual auto-detection OCR ─────────────────────────────────────────
+//
+// 2-pass strategy (no source language selection needed from the user):
+//   1. OSD: detect script in milliseconds
+//   2a. Non-Latin script detected → use the exact Tesseract model
+//   2b. Latin script → quick eng OCR → tinyld detects actual language → proper model
+//
+// This loads exactly 1 Tesseract language model (not 12), so it is both
+// faster and more accurate than a multi-language pack.
+
+export async function extractTextAuto(image, onProgress) {
+  // ── Step 1: OSD for non-Latin scripts ──
+  const osdScript = await detectScriptViaOsd(image)
+
+  if (
+    osdScript &&
+    osdScript !== 'Latin' &&
+    osdScript !== 'Common' &&
+    osdScript !== 'Unknown' &&
+    osdScript !== ''
+  ) {
+    const code = OSD_SCRIPT_TO_CODE[osdScript]
+    if (code) return extractText(image, code, onProgress)
+  }
+
+  // ── Step 2: Latin script — detect exact language then run proper OCR ──
+  // Quick eng pass to sample text for language detection
+  const sampleText = await runQuickOcr(image)
+
+  let langCode = 'fra+eng'  // sensible default covering French and English
+
+  if (sampleText) {
+    // Also check for non-Latin chars that survived the eng pass
+    const scriptCode = detectDominantScript(sampleText)
+    if (scriptCode) return extractText(image, scriptCode, onProgress)
+
+    // tinyld language detection from the sample
+    const detected = detectLatinLanguage(sampleText)
+    if (detected?.code) langCode = detected.code
+  }
+
+  return extractText(image, langCode, onProgress)
+}
+
+// ─── Language detection for UI (kept for any future use) ─────────────────────
 
 export async function detectImageLanguage(file) {
   try {
-
-    // ── A. PDF with native text → extract directly, skip OCR ─────────────────
     if (file instanceof File && isPdf(file)) {
       const nativeText = await extractPdfNativeText(file)
       if (nativeText) {
         const scriptCode = detectDominantScript(nativeText)
         if (scriptCode) return { code: scriptCode, confidence: 0.93 }
         const result = detectLatinLanguage(nativeText)
-        if (result) return result
+        if (result) return { code: result.code, confidence: 0.85 }
       }
     }
 
-    // ── B. OSD: detect script without full OCR (fast, reliable for non-Latin) ─
-    //    Requires OEM=0 (Legacy engine) — this is the critical fix vs the
-    //    previous OEM=1 build which silently crashed.
     const osdScript = await detectScriptViaOsd(file)
     if (
       osdScript &&
@@ -260,23 +264,13 @@ export async function detectImageLanguage(file) {
       if (code) return { code, confidence: 0.90 }
     }
 
-    // ── C. OCR pass with English model (Latin script or OSD unavailable) ──────
     const ocrText = await runQuickOcr(file)
     if (!ocrText) return null
 
-    // ── D. Unicode analysis on OCR output ────────────────────────────────────
-    //    Catches non-Latin chars that survived OCR (accents, diacritics, etc.)
     const scriptCode = detectDominantScript(ocrText)
     if (scriptCode) return { code: scriptCode, confidence: 0.85 }
 
-    // ── E. Require minimum Latin character proportion ─────────────────────────
-    const ns         = ocrText.replace(/\s/g, '')
-    const latinCount = (ns.match(/[a-zA-ZÀ-ɏ]/g) || []).length
-    if (latinCount / ns.length < 0.28) return null
-
-    // ── F. tinyld chunk detection with majority vote ──────────────────────────
-    return detectLatinLanguage(ocrText)
-
+    return detectLatinLanguage(ocrText) ? { code: detectLatinLanguage(ocrText).code, confidence: 0.75 } : null
   } catch {
     return null
   }

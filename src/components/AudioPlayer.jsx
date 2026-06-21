@@ -288,24 +288,25 @@ export default function AudioPlayer({
       {/* Hidden native audio element — src set dynamically */}
       <audio ref={audioRef} preload="auto" />
 
-      {/* ── Blue header ── */}
+      {/* ── Sticky blue header ── */}
       <div
-        className="flex items-center gap-3 px-4 pb-4 sticky top-0 z-10"
+        className="flex items-center gap-3 px-4 sticky top-0 z-20"
         style={{
           background: 'var(--color-brand)',
-          paddingTop: 'max(48px, calc(env(safe-area-inset-top, 0px) + 12px))',
+          paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)',
+          paddingBottom: '10px',
         }}
       >
         <button
           onClick={handleBack}
-          className="w-10 h-10 rounded-full flex items-center justify-center bg-white/15 hover:bg-white/25 active:bg-white/35 transition-colors"
+          className="w-9 h-9 rounded-full flex items-center justify-center bg-white/15 hover:bg-white/25 active:bg-white/35 transition-colors shrink-0"
           aria-label="Retour"
         >
           <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <h2 className="font-bold text-white text-lg leading-tight">
             {isProcessing
               ? (verifying ? 'Vérification…' : 'Traitement…')
@@ -325,7 +326,7 @@ export default function AudioPlayer({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 pb-32">
+      <div className="px-4 pb-32 pt-2">
 
         {/* ── OCR + Translation progress ── */}
         {isProcessing && (

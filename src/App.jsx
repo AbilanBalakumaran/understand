@@ -35,6 +35,15 @@ const TARGET_SCRIPT_REGEX = {
   am: /[ሀ-፿]/g,
 }
 
+// A token is a "real word" if it has 2+ letters and at least one vowel.
+// Short all-uppercase tokens (≤ 3 chars) are treated as OCR noise.
+function isRealWord(token) {
+  const letters = token.replace(/[^a-zA-ZÀ-ÿĀ-ɏ]/g, '')
+  if (letters.length < 2) return false
+  if (letters.length <= 3 && letters === letters.toUpperCase()) return false
+  return /[aeiouyàáâãäåèéêëìíîïòóôõöùúûüæœАЕИОУЫЭЮЯ]/i.test(letters)
+}
+
 function cleanOCRText(text, targetLangCode) {
   const scriptRegex = TARGET_SCRIPT_REGEX[targetLangCode]
   let processed = scriptRegex
@@ -47,7 +56,16 @@ function cleanOCRText(text, targetLangCode) {
     if (letters.length < 4) return false
     if (/^[""''"'<>\[\]{}/\\|=+*&#@~`]+/.test(line)) return false
     if (/^\d{1,2}:\d{2}/.test(line)) return false
-    if (letters.length < line.length * 0.35) return false
+    if (letters.length < line.length * 0.3) return false
+
+    // Filter lines that are mostly OCR noise:
+    // require at least 35% of space-separated tokens to be "real" words
+    const tokens = line.split(/\s+/).filter(Boolean)
+    if (tokens.length >= 3) {
+      const realCount = tokens.filter(isRealWord).length
+      if (realCount / tokens.length < 0.35) return false
+    }
+
     return true
   })
 
@@ -153,14 +171,7 @@ export default function App() {
       {/* Splash screen — shown once on launch */}
       {!splashDone && <SplashScreen onDone={() => setSplashDone(true)} />}
 
-      {/* iOS status-bar colour overlay.
-          With black-translucent, content goes behind the status bar.
-          This fixed div fills that gap with our cobalt blue so the
-          bar always matches the rest of the app. On Android / desktop
-          its height is 0 and it has no visual effect. */}
-      <div className="fixed top-0 left-0 right-0 z-[9997] safe-top-h" style={{ background: 'var(--color-brand)' }} />
-
-      <div className="max-w-md mx-auto relative min-h-screen">
+      <div className="max-w-md mx-auto relative">
         {step === STEP.UPLOAD && (
           <UploadStep
             onImageSelected={(file, preview) => {
