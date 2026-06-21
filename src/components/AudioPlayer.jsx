@@ -14,7 +14,6 @@ function formatTime(secs) {
 }
 
 export default function AudioPlayer({
-  appLang,
   imagePreview,
   targetLang,
   translatedText,
@@ -25,8 +24,6 @@ export default function AudioPlayer({
   onStartOver,
   onBack,
 }) {
-  const isFr = appLang === 'fr' || !appLang
-  const displayName = (isFr && targetLang.nameFr) ? targetLang.nameFr : targetLang.name
   /* ── processing phase ── */
   const isReady   = !isProcessing && !error && translatedText
   const ocrDone   = ocrProgress >= 100
@@ -289,10 +286,7 @@ export default function AudioPlayer({
       <audio ref={audioRef} preload="auto" />
 
       {/* ── Top bar ── */}
-      <div
-        className="flex items-center gap-3 px-4 pb-4 bg-white border-b border-gray-100 sticky top-0 z-10"
-        style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)' }}
-      >
+      <div className="flex items-center gap-3 px-4 pt-12 pb-4 bg-gradient-to-b from-primary-50 to-white sticky top-0 z-10">
         <button
           onClick={handleBack}
           className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors"
@@ -309,7 +303,7 @@ export default function AudioPlayer({
               : error ? 'Une erreur est survenue'
               : 'Audio prêt !'}
           </h2>
-          <p className="text-gray-400 text-xs">{isFr ? 'Étape 3 / 3' : 'Step 3 / 3'} · {targetLang.flag} {displayName}</p>
+          <p className="text-gray-400 text-xs">Étape 3 / 3 · {targetLang.flag} {targetLang.name}</p>
         </div>
         {imagePreview && (
           <img src={imagePreview} alt="document" className="ml-auto w-10 h-12 object-cover rounded-xl border border-gray-200" />
@@ -322,19 +316,15 @@ export default function AudioPlayer({
         {isProcessing && (
           <div className="space-y-3 mt-2">
             <ProgressItem label="Lecture du document"        icon={<ScanIcon />}      progress={ocrProgress}       done={ocrDone} />
-            <ProgressItem label={`${isFr ? 'Traduction en' : 'Translation to'} ${displayName}`} icon={<TranslateIcon />} progress={ocrDone ? translateProgress : 0} done={transDone} disabled={!ocrDone} />
+            <ProgressItem label={`Traduction en ${targetLang.name}`} icon={<TranslateIcon />} progress={ocrDone ? translateProgress : 0} done={transDone} disabled={!ocrDone} />
             {verifying && (
               <div className="bg-primary-50 border border-primary-100 rounded-2xl p-4 flex items-center gap-3">
                 <svg className="w-5 h-5 text-primary-600 spin-slow shrink-0" viewBox="0 0 24 24" fill="none">
                   <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeDashoffset="10" strokeLinecap="round"/>
                 </svg>
                 <div>
-                  <p className="text-sm font-semibold text-primary-700">
-                    {isFr ? 'Vérification de la traduction…' : 'Verifying translation…'}
-                  </p>
-                  <p className="text-xs text-primary-500">
-                    {isFr ? `On s'assure que tout est bien en ${displayName}` : `Making sure everything is in ${displayName}`}
-                  </p>
+                  <p className="text-sm font-semibold text-primary-700">Vérification de la traduction…</p>
+                  <p className="text-xs text-primary-500">On s'assure que tout est bien en {targetLang.name}</p>
                 </div>
               </div>
             )}
@@ -372,7 +362,7 @@ export default function AudioPlayer({
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <span className="text-2xl">{targetLang.flag}</span>
-                  <span className="font-bold text-base">{displayName}</span>
+                  <span className="font-bold text-base">{targetLang.name}</span>
                 </div>
                 {/* Speed badge */}
                 <button

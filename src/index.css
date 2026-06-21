@@ -15,25 +15,21 @@ html, body, #root {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  /* Bleu primaire pendant le chargement → évite le flash blanc avant la splash screen */
-  background: #2E5BFF;
+  background: #F4F6FF;
   overscroll-behavior: none;
 }
 
 @layer utilities {
-  /* Hauteur de la zone status-bar iOS (inset top) */
-  .safe-top-h {
-    height: env(safe-area-inset-top, 0px);
-  }
-
-  /* Padding bas pour les boutons fixes (home indicator) */
+  /* Ensures buttons/content are never flush with the bottom edge.
+     28 px minimum covers devices without a home indicator.
+     env(safe-area-inset-bottom) adds extra room on notch phones. */
   .safe-bottom {
     padding-bottom: max(env(safe-area-inset-bottom, 0px), 28px);
   }
 
-  /* Padding top pour les headers : safe-area + contenu */
-  .safe-header-pt {
-    padding-top: max(env(safe-area-inset-top, 0px), 12px);
+  /* Used by the status-bar colour overlay in App.jsx */
+  .safe-top-h {
+    height: env(safe-area-inset-top, 0px);
   }
 }
 
@@ -51,6 +47,7 @@ input:focus-visible  { outline: 2px solid #2E5BFF; outline-offset: 1px; }
    SPLASH SCREEN ANIMATIONS
 ══════════════════════════════════════════════════════ */
 
+/* Icon: bouncy scale-up from below */
 @keyframes splash-icon-in {
   0%   { transform: scale(0.3) translateY(40px); opacity: 0; }
   65%  { transform: scale(1.12) translateY(-8px); opacity: 1; }
@@ -58,11 +55,13 @@ input:focus-visible  { outline: 2px solid #2E5BFF; outline-offset: 1px; }
   100% { transform: scale(1)    translateY(0);   opacity: 1; }
 }
 
+/* Text: slide up + fade in */
 @keyframes splash-text-in {
   0%   { transform: translateY(24px); opacity: 0; }
   100% { transform: translateY(0);    opacity: 1; }
 }
 
+/* Dot pulse */
 @keyframes dot-pulse {
   0%, 100% { transform: scale(1);    opacity: 0.8; }
   50%       { transform: scale(1.5); opacity: 1;   }
@@ -88,27 +87,23 @@ input:focus-visible  { outline: 2px solid #2E5BFF; outline-offset: 1px; }
    GENERAL ANIMATIONS
 ══════════════════════════════════════════════════════ */
 
+/* Play button pulse ring */
 @keyframes pulse-ring {
   0%   { transform: scale(0.85); opacity: 1; }
   100% { transform: scale(1.65); opacity: 0; }
 }
 .pulse-ring { animation: pulse-ring 1.4s ease-out infinite; }
 
+/* Slow spinner (used on progress icons) */
 @keyframes spin-slow {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
 .spin-slow { animation: spin-slow 2s linear infinite; }
 
+/* Subtle card entry */
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 .fade-up { animation: fade-up 0.3s ease-out both; }
-
-/* ══════════════════════════════════════════════════════
-   MODAL SETTINGS
-══════════════════════════════════════════════════════ */
-.settings-overlay {
-  animation: fade-up 0.2s ease-out both;
-}

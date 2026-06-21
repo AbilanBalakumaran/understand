@@ -20,7 +20,7 @@ export default defineConfig({
         short_name: 'Understand',
         description: 'Translate any document into your language and listen to it',
         theme_color: '#2E5BFF',
-        background_color: '#2E5BFF',
+        background_color: '#F4F6FF',
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/understand/',
