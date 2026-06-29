@@ -13,10 +13,38 @@ function formatTime(secs) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+// Maps Google-returned ISO codes to a flag + short name for display
+const LANG_DISPLAY = {
+  af: ['🇿🇦', 'Afrikaans'], sq: ['🇦🇱', 'Albanais'], am: ['🇪🇹', 'Amharique'],
+  ar: ['🇸🇦', 'Arabe'], hy: ['🇦🇲', 'Arménien'], az: ['🇦🇿', 'Azerbaïdjanais'],
+  bn: ['🇧🇩', 'Bengali'], bs: ['🇧🇦', 'Bosniaque'], bg: ['🇧🇬', 'Bulgare'],
+  ca: ['🏴', 'Catalan'], zh: ['🇨🇳', 'Chinois'], hr: ['🇭🇷', 'Croate'],
+  cs: ['🇨🇿', 'Tchèque'], da: ['🇩🇰', 'Danois'], nl: ['🇳🇱', 'Néerlandais'],
+  en: ['🇬🇧', 'Anglais'], et: ['🇪🇪', 'Estonien'], fi: ['🇫🇮', 'Finnois'],
+  fr: ['🇫🇷', 'Français'], ka: ['🇬🇪', 'Géorgien'], de: ['🇩🇪', 'Allemand'],
+  el: ['🇬🇷', 'Grec'], gu: ['🇮🇳', 'Gujarati'], ht: ['🇭🇹', 'Créole'],
+  he: ['🇮🇱', 'Hébreu'], hi: ['🇮🇳', 'Hindi'], hu: ['🇭🇺', 'Hongrois'],
+  id: ['🇮🇩', 'Indonésien'], ga: ['🇮🇪', 'Irlandais'], it: ['🇮🇹', 'Italien'],
+  ja: ['🇯🇵', 'Japonais'], kn: ['🇮🇳', 'Kannada'], ko: ['🇰🇷', 'Coréen'],
+  lv: ['🇱🇻', 'Letton'], lt: ['🇱🇹', 'Lituanien'], mk: ['🇲🇰', 'Macédonien'],
+  ms: ['🇲🇾', 'Malais'], ml: ['🇮🇳', 'Malayalam'], mt: ['🇲🇹', 'Maltais'],
+  mr: ['🇮🇳', 'Marathi'], my: ['🇲🇲', 'Birman'], ne: ['🇳🇵', 'Népalais'],
+  no: ['🇳🇴', 'Norvégien'], fa: ['🇮🇷', 'Persan'], pl: ['🇵🇱', 'Polonais'],
+  pt: ['🇵🇹', 'Portugais'], pa: ['🇮🇳', 'Pendjabi'], ro: ['🇷🇴', 'Roumain'],
+  ru: ['🇷🇺', 'Russe'], sr: ['🇷🇸', 'Serbe'], si: ['🇱🇰', 'Cingalais'],
+  sk: ['🇸🇰', 'Slovaque'], sl: ['🇸🇮', 'Slovène'], so: ['🇸🇴', 'Somali'],
+  es: ['🇪🇸', 'Espagnol'], sw: ['🇰🇪', 'Swahili'], sv: ['🇸🇪', 'Suédois'],
+  tl: ['🇵🇭', 'Filipino'], ta: ['🇮🇳', 'Tamoul'], te: ['🇮🇳', 'Télougou'],
+  th: ['🇹🇭', 'Thaï'], tr: ['🇹🇷', 'Turc'], uk: ['🇺🇦', 'Ukrainien'],
+  ur: ['🇵🇰', 'Ourdou'], uz: ['🇺🇿', 'Ouzbek'], vi: ['🇻🇳', 'Vietnamien'],
+  cy: ['🏴󠁧󠁢󠁷󠁬󠁳󠁿', 'Gallois'], yo: ['🇳🇬', 'Yoruba'], zu: ['🇿🇦', 'Zoulou'],
+}
+
 export default function AudioPlayer({
   imagePreview,
   targetLang,
   translatedText,
+  detectedLang,
   ocrProgress,
   translateProgress,
   isProcessing,
@@ -374,11 +402,25 @@ export default function AudioPlayer({
             {/* ── Player card ── */}
             <div className="bg-gradient-to-br from-primary-600 to-primary-800 rounded-3xl p-6 text-white shadow-blue">
 
-              {/* Flag + language */}
+              {/* Detected source → target language */}
               <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-2xl">{targetLang.flag}</span>
-                  <span className="font-bold text-base">{targetLang.name}</span>
+                <div className="flex items-center gap-2 min-w-0">
+                  {detectedLang && LANG_DISPLAY[detectedLang.split('-')[0]] ? (
+                    <div className="flex items-center gap-1.5 bg-white/15 rounded-xl px-2.5 py-1 text-sm font-semibold">
+                      <span>{LANG_DISPLAY[detectedLang.split('-')[0]][0]}</span>
+                      <span className="text-white/80 text-xs">{LANG_DISPLAY[detectedLang.split('-')[0]][1]}</span>
+                      <svg className="w-3 h-3 text-white/60 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7"/>
+                      </svg>
+                      <span>{targetLang.flag}</span>
+                      <span className="text-xs text-white/80">{targetLang.name}</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl">{targetLang.flag}</span>
+                      <span className="font-bold text-base">{targetLang.name}</span>
+                    </div>
+                  )}
                 </div>
                 {/* Speed badge */}
                 <button

@@ -15,7 +15,7 @@ async function googleTranslate(text, sourceLang, targetLang) {
 
   const data = await res.json()
 
-  // Response is [[["translated","original",...], ...], ...]
+  // Response: [[["translated","original",...], ...], null, "detected_lang"]
   if (!Array.isArray(data) || !Array.isArray(data[0])) {
     throw new Error('Google: unexpected response format')
   }
@@ -26,7 +26,11 @@ async function googleTranslate(text, sourceLang, targetLang) {
     .join('')
 
   if (!translated.trim()) throw new Error('Google: empty result')
-  return translated
+
+  // data[2] is the detected source language code (e.g. "fr", "ar", "zh-CN")
+  const detectedLang = typeof data[2] === 'string' ? data[2] : null
+
+  return { translated, detectedLang }
 }
 
 // ─── MyMemory (Latin-script fallback) ─────────────────────────────────────
@@ -115,20 +119,19 @@ function sleep(ms) {
 //   2. MyMemory (Latin targets only — non-Latin returns transliterations)
 //   3. Lingva (last resort)
 
+// Returns { text, detectedLang } — detectedLang only available from Google
 async function translateChunk(chunk, sourceLang, targetLang) {
   const tgtBase = targetLang.split('-')[0]
   const isNonLatinTarget = !LATIN_LANG_CODES.has(tgtBase)
 
   // Try Google first (always — handles all scripts perfectly)
   try {
-    const result = await googleTranslate(chunk, sourceLang, targetLang)
-    // Sanity check: result should differ from input (except for very short strings)
-    if (chunk.length > 20 && result.trim() === chunk.trim()) {
+    const { translated, detectedLang } = await googleTranslate(chunk, sourceLang, targetLang)
+    if (chunk.length > 20 && translated.trim() === chunk.trim()) {
       throw new Error('Identity: translation equals source')
     }
-    return result
+    return { text: translated, detectedLang }
   } catch (googleErr) {
-    // Google failed — fall through to next option
     console.warn('[translate] Google failed:', googleErr.message)
   }
 
@@ -139,7 +142,7 @@ async function translateChunk(chunk, sourceLang, targetLang) {
       if (chunk.length > 20 && result.trim() === chunk.trim()) {
         throw new Error('Identity translation')
       }
-      return result
+      return { text: result, detectedLang: null }
     } catch (mmErr) {
       if (mmErr.message !== 'QUOTA_EXCEEDED' && mmErr.message !== 'Identity translation') {
         console.warn('[translate] MyMemory failed:', mmErr.message)
@@ -148,7 +151,8 @@ async function translateChunk(chunk, sourceLang, targetLang) {
   }
 
   // Last resort: Lingva
-  return lingvaTranslate(chunk, sourceLang, targetLang)
+  const result = await lingvaTranslate(chunk, sourceLang, targetLang)
+  return { text: result, detectedLang: null }
 }
 
 // ─── Post-translation cleaning ─────────────────────────────────────────────
@@ -164,22 +168,26 @@ function cleanTranslatedText(text) {
 
 // ─── Public API ────────────────────────────────────────────────────────────
 
+// Returns { text, detectedLang } where detectedLang is the ISO code Google
+// identified for the source (e.g. "fr", "ar") — null if unavailable.
 export async function translateText(text, sourceLang, targetLang, onProgress) {
-  if (!text?.trim()) return ''
+  if (!text?.trim()) return { text: '', detectedLang: null }
 
   const srcBase = sourceLang.split('-')[0].toLowerCase()
   const tgtBase = targetLang.split('-')[0].toLowerCase()
-  if (srcBase !== 'auto' && srcBase === tgtBase) return text
+  if (srcBase !== 'auto' && srcBase === tgtBase) return { text, detectedLang: srcBase }
 
   const chunks     = splitIntoChunks(text)
-  const translated = []
+  const parts      = []
+  let   detectedLang = null
 
   for (let i = 0; i < chunks.length; i++) {
-    const result = await translateChunk(chunks[i], sourceLang, targetLang)
-    translated.push(result)
+    const { text: translated, detectedLang: dl } = await translateChunk(chunks[i], sourceLang, targetLang)
+    parts.push(translated)
+    if (!detectedLang && dl) detectedLang = dl
     onProgress?.(Math.round(((i + 1) / chunks.length) * 100))
     if (i < chunks.length - 1) await sleep(DELAY_MS)
   }
 
-  return cleanTranslatedText(translated.join(' '))
+  return { text: cleanTranslatedText(parts.join(' ')), detectedLang }
 }

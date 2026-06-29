@@ -95,6 +95,8 @@ export default function UploadStep({ onImageSelected }) {
         const blob = await convertPdfToImage(f)
         const url  = URL.createObjectURL(blob)
         setBaseFile(blob);    setBasePreview(url)
+        // Keep original PDF attached to the blob so App.jsx can use native text
+        blob._originalPdf = f
         setFile(blob);        setPreview(url)
         setRotation(0)
       } catch {

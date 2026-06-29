@@ -4,6 +4,7 @@ import LanguageSelect from './components/LanguageSelect'
 import AudioPlayer    from './components/AudioPlayer'
 import SplashScreen   from './components/SplashScreen'
 import { extractTextAuto } from './services/ocr'
+import { extractPdfNativeText, convertPdfToImages } from './services/pdf'
 import { translateText } from './services/translate'
 import { requestNotifPermission, sendNotification } from './services/notifications'
 
@@ -86,6 +87,7 @@ export default function App() {
   // ── Processing ──────────────────────────────────────────────────
   const [targetLang, setTargetLang]             = useState(null)
   const [translatedText, setTranslatedText]     = useState('')
+  const [detectedLang, setDetectedLang]         = useState(null)
   const [ocrProgress, setOcrProgress]           = useState(0)
   const [translateProgress, setTranslateProgress] = useState(0)
   const [isProcessing, setIsProcessing]         = useState(false)
@@ -109,6 +111,7 @@ export default function App() {
     setOcrProgress(0)
     setTranslateProgress(0)
     setTranslatedText('')
+    setDetectedLang(null)
 
     // Ask for notification permission at the start of processing
     // (must be triggered by a user gesture — this callback is called from a button click)
@@ -116,8 +119,34 @@ export default function App() {
 
     const run = async () => {
       try {
-        // Step 1 — OCR (auto multilingual: detects script internally)
-        const rawText = await extractTextAuto(imageFile, (p) => setOcrProgress(p))
+        // Step 1 — Text extraction
+        // Priority: native PDF text → multi-page scanned OCR → single image OCR
+        const originalPdf = imageFile?._originalPdf
+        let rawText = null
+
+        if (originalPdf) {
+          // Try native PDF text extraction first (instant, 100% accurate)
+          rawText = await extractPdfNativeText(originalPdf, 20)
+
+          if (!rawText) {
+            // Scanned PDF: OCR each page
+            const pageBlobs = await convertPdfToImages(originalPdf, 10)
+            const parts = []
+            for (let i = 0; i < pageBlobs.length; i++) {
+              const pageText = await extractTextAuto(pageBlobs[i], (p) =>
+                setOcrProgress(Math.round((i / pageBlobs.length) * 100 + p / pageBlobs.length))
+              )
+              if (pageText?.trim()) parts.push(pageText.trim())
+            }
+            rawText = parts.join('\n\n')
+          }
+        }
+
+        if (!rawText) {
+          // Single image (or fallback)
+          rawText = await extractTextAuto(imageFile, (p) => setOcrProgress(p))
+        }
+
         setOcrProgress(100)
 
         if (!rawText || rawText.trim().length < 3) {
@@ -131,9 +160,10 @@ export default function App() {
         }
 
         // Step 2 — Translate (auto source: API detects language per chunk)
-        const translated = await translateText(cleanedText, 'auto', tl.code, (p) => setTranslateProgress(p))
+        const { text: translated, detectedLang: dl } = await translateText(cleanedText, 'auto', tl.code, (p) => setTranslateProgress(p))
         setTranslateProgress(100)
         setTranslatedText(translated)
+        if (dl) setDetectedLang(dl)
 
         sendNotification(
           'Understand — Audio prêt ! 🎧',
@@ -160,6 +190,7 @@ export default function App() {
     setImagePreview(null)
     setTargetLang(null)
     setTranslatedText('')
+    setDetectedLang(null)
     setOcrProgress(0)
     setTranslateProgress(0)
     setIsProcessing(false)
@@ -194,6 +225,7 @@ export default function App() {
             imagePreview={imagePreview}
             targetLang={targetLang}
             translatedText={translatedText}
+            detectedLang={detectedLang}
             ocrProgress={ocrProgress}
             translateProgress={translateProgress}
             isProcessing={isProcessing}

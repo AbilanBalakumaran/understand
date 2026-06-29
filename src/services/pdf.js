@@ -31,6 +31,31 @@ async function loadPdfJs() {
 }
 
 /**
+ * Renders all pages of a PDF into an array of JPEG Blobs.
+ */
+export async function convertPdfToImages(file, maxPages = 10, scale = 2) {
+  const pdfjs       = await loadPdfJs()
+  const arrayBuffer = await file.arrayBuffer()
+  const pdf         = await pdfjs.getDocument({ data: arrayBuffer }).promise
+  const total       = Math.min(pdf.numPages, maxPages)
+  const blobs       = []
+
+  for (let i = 1; i <= total; i++) {
+    const page     = await pdf.getPage(i)
+    const viewport = page.getViewport({ scale })
+    const canvas   = document.createElement('canvas')
+    canvas.width   = Math.floor(viewport.width)
+    canvas.height  = Math.floor(viewport.height)
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/jpeg', 0.92)
+    })
+    blobs.push(blob)
+  }
+  return blobs
+}
+
+/**
  * Renders the first page of a PDF file into a JPEG Blob.
  *
  * @param {File|Blob} file   - PDF file to convert
