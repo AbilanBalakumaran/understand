@@ -175,11 +175,12 @@ export default function App() {
               return
             }
           } catch (geminiErr) {
-            if (!geminiErr.message?.includes('GEMINI_UNAVAILABLE') && !geminiErr.message?.includes('GEMINI_KEY_MISSING')) {
-              throw geminiErr  // real error (bad image, etc.) — show to user
-            }
-            // Quota or unavailable → fall through to Tesseract + Google Translate
-            console.warn('[app] Gemini unavailable, using fallback:', geminiErr.message)
+            // Only surface errors that are truly about content (bad image quality).
+            // Everything else (SSL, network, quota, 5xx) falls through silently
+            // to Tesseract + Google Translate so the user always gets a result.
+            const isContentError = geminiErr.message?.includes('Image trop mauvaise')
+            if (isContentError) throw geminiErr
+            console.warn('[app] Gemini fallback:', geminiErr.message)
           }
         }
 
@@ -243,13 +244,8 @@ export default function App() {
         )
       } catch (err) {
         if (stale()) return
-        // Give a clear offline message when the network is the cause
-        const isNetworkError = err instanceof TypeError &&
-          (err.message.includes('fetch') || err.message.includes('network') ||
-           err.message.includes('Failed') || err.message.includes('NetworkError') ||
-           err.message.includes('Load failed'))  // Safari offline message
         const isOffline = !navigator.onLine
-        const msg = (isOffline || isNetworkError)
+        const msg = isOffline
           ? 'Pas de connexion internet. Vérifiez votre réseau et réessayez.'
           : err.message || 'Une erreur inattendue est survenue. Veuillez réessayer.'
         setError(msg)
