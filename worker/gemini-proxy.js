@@ -1,22 +1,53 @@
 /**
- * Cloudflare Worker — Gemini proxy
+ * Cloudflare Worker — multi-AI proxy
  *
- * POST /process    { image, mimeType, targetLangName }
- *   OCR + translate in one call (images AND native PDFs)
+ * Secrets (set in Worker Settings → Variables & Secrets):
+ *   GEMINI_API_KEY    — Google AI Studio (required)
+ *   DEEPL_API_KEY     — DeepL free API   (optional, improves translation)
+ *   GOOGLE_TTS_KEY    — Google Cloud TTS (optional, improves audio)
  *
- * POST /check      { image, mimeType }
- *   Quick image quality assessment before full processing
+ * Bindings (wrangler.toml):
+ *   AI                — Cloudflare Workers AI (free fallback for translate/summarize)
  *
- * POST /summarize  { text, targetLangName }
- *   Generate a 2-3 sentence summary of the translated document
- *
- * POST /tts        { text, lang }
- *   Convert text to speech using Gemini TTS (returns audio/wav blob)
+ * Endpoints:
+ *   POST /process     { image, mimeType, targetLangName }
+ *   POST /check       { image, mimeType }
+ *   POST /translate   { text, sourceLang, targetLang, targetLangName }
+ *   POST /summarize   { text, targetLangName }
+ *   POST /tts         { text, lang, langName }
  */
 
-const GEMINI_BASE    = 'https://generativelanguage.googleapis.com/v1beta/models'
-const PROCESS_MODEL  = 'gemini-2.5-flash'
-const TTS_MODEL      = 'gemini-2.5-flash-preview-tts'
+// ─── Models ───────────────────────────────────────────────────────────────
+
+const GEMINI_BASE     = 'https://generativelanguage.googleapis.com/v1beta/models'
+const GEMINI_MODEL    = 'gemini-2.5-flash'
+const GEMINI_TTS      = 'gemini-2.5-flash-preview-tts'
+const DEEPL_URL       = 'https://api-free.deepl.com/v2/translate'
+const GOOGLE_TTS_URL  = 'https://texttospeech.googleapis.com/v1/text:synthesize'
+
+// ─── Language code mappings ────────────────────────────────────────────────
+
+// DeepL uses uppercase ISO codes + some special cases
+const TO_DEEPL = {
+  fr:'FR',en:'EN-US',es:'ES',de:'DE',it:'IT',pt:'PT-PT',nl:'NL',
+  pl:'PL',ru:'RU',ja:'JA',zh:'ZH',ko:'KO',tr:'TR',uk:'UK',
+  cs:'CS',sv:'SV',da:'DA',fi:'FI',nb:'NB',ro:'RO',hu:'HU',
+  hr:'HR',sk:'SK',sl:'SL',et:'ET',lv:'LV',lt:'LT',bg:'BG',el:'EL',
+  id:'ID',vi:'VI',ar:null,hi:null,ta:null,th:null,he:null, // not supported by DeepL
+}
+
+// Cloudflare m2m100 uses full lowercase language names
+const TO_CF_AI = {
+  fr:'french',en:'english',es:'spanish',de:'german',it:'italian',
+  pt:'portuguese',nl:'dutch',pl:'polish',ru:'russian',ja:'japanese',
+  zh:'chinese',ko:'korean',ar:'arabic',tr:'turkish',uk:'ukrainian',
+  cs:'czech',sv:'swedish',da:'danish',fi:'finnish',ro:'romanian',
+  hu:'hungarian',bg:'bulgarian',el:'greek',he:'hebrew',hi:'hindi',
+  bn:'bengali',ta:'tamil',te:'telugu',th:'thai',id:'indonesian',
+  ms:'malay',vi:'vietnamese',ka:'georgian',hy:'armenian',
+}
+
+// ─── CORS ─────────────────────────────────────────────────────────────────
 
 const ALLOWED_ORIGINS = [
   'https://abilanbalakumaran.github.io',
@@ -25,64 +56,26 @@ const ALLOWED_ORIGINS = [
   'http://localhost:4173',
 ]
 
-// ─── Prompts ──────────────────────────────────────────────────────────────
-
-function buildProcessPrompt(targetLangName) {
-  return `You are processing a document image or PDF. Perform two steps:
-
-STEP 1 — Extract ALL text from the document exactly as written.
-STEP 2 — Translate the extracted text into ${targetLangName}.
-
-Rules:
-- Preserve ALL data: names, dates, numbers, codes, addresses, amounts
-- Keep document structure (field label + value on the same line)
-- Produce natural, fluent ${targetLangName}
-- Proper nouns, codes, reference numbers stay as-is
-- Blank lines between sections should be preserved
-
-Return ONLY the translated text. No step labels, no commentary.`
-}
-
-const CHECK_PROMPT = `Look at this image and answer ONLY with valid JSON, nothing else.
-Assess whether it contains readable document text.
-
-{"ok": true} if the image has clear, readable text.
-{"ok": false, "issue": "brief reason"} if:
-- The image is too blurry or out of focus
-- The image is too dark or overexposed
-- No text is visible
-- The document is cut off or severely cropped
-
-Reply with JSON only, no markdown.`
-
-function buildSummaryPrompt(targetLangName) {
-  return `Summarize the key information from this document in 2-3 short sentences in ${targetLangName}.
-
-Include: document type, key names, important dates, reference numbers, validity.
-Be concise and direct. No preamble like "This document..." — go straight to the facts.`
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────
-
 function corsHeaders(origin) {
   const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
   return {
     'Access-Control-Allow-Origin':  allowed,
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Max-Age': '86400',
+    'Access-Control-Max-Age':       '86400',
   }
 }
 
-function jsonResponse(body, status, cors) {
+function jsonRes(body, status, cors) {
   return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...cors },
+    status, headers: { 'Content-Type': 'application/json', ...cors }
   })
 }
 
-async function geminiText(apiKey, model, parts, config = {}) {
-  const res = await fetch(`${GEMINI_BASE}/${model}:generateContent?key=${apiKey}`, {
+// ─── Gemini helpers ────────────────────────────────────────────────────────
+
+async function geminiGenerate(apiKey, model, parts, config = {}) {
+  const r = await fetch(`${GEMINI_BASE}/${model}:generateContent?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -90,37 +83,50 @@ async function geminiText(apiKey, model, parts, config = {}) {
       generationConfig: { temperature: 0.1, maxOutputTokens: 8192, ...config },
     }),
   })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    const status = res.status === 429 || res.status >= 500 ? res.status : 502
-    throw Object.assign(new Error(err.error?.message || `Gemini HTTP ${res.status}`), { status })
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}))
+    throw Object.assign(new Error(e.error?.message || `Gemini ${r.status}`),
+      { status: r.status >= 500 || r.status === 429 ? r.status : 502 })
   }
-  const data = await res.json()
-  return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
+  const d = await r.json()
+  return d.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
 }
 
-// PCM (16-bit, 24 kHz, mono) → WAV bytes
+// ─── PCM → WAV ────────────────────────────────────────────────────────────
+
 function pcmToWav(pcmBase64) {
-  const pcm        = Uint8Array.from(atob(pcmBase64), c => c.charCodeAt(0))
-  const sampleRate = 24000
-  const numCh      = 1
-  const bps        = 16
-  const byteRate   = sampleRate * numCh * (bps / 8)
-  const blockAlign = numCh * (bps / 8)
-  const buf        = new ArrayBuffer(44 + pcm.length)
-  const v          = new DataView(buf)
-  const s          = (off, str) => [...str].forEach((c, i) => v.setUint8(off + i, c.charCodeAt(0)))
-  s(0, 'RIFF');  v.setUint32(4,  36 + pcm.length, true)
-  s(8, 'WAVE');  s(12, 'fmt '); v.setUint32(16, 16, true)
-  v.setUint16(20, 1, true);     v.setUint16(22, numCh, true)
-  v.setUint32(24, sampleRate, true); v.setUint32(28, byteRate, true)
-  v.setUint16(32, blockAlign, true); v.setUint16(34, bps, true)
-  s(36, 'data'); v.setUint32(40, pcm.length, true)
-  new Uint8Array(buf, 44).set(pcm)
+  const pcm = Uint8Array.from(atob(pcmBase64), c => c.charCodeAt(0))
+  const sr = 24000, ch = 1, bps = 16
+  const buf = new ArrayBuffer(44 + pcm.length)
+  const v   = new DataView(buf)
+  const s   = (o, str) => [...str].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)))
+  s(0,'RIFF'); v.setUint32(4, 36+pcm.length, true)
+  s(8,'WAVE'); s(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true)
+  v.setUint16(22,ch,true); v.setUint32(24,sr,true); v.setUint32(28,sr*ch*bps/8,true)
+  v.setUint16(32,ch*bps/8,true); v.setUint16(34,bps,true)
+  s(36,'data'); v.setUint32(40,pcm.length,true)
+  new Uint8Array(buf,44).set(pcm)
   return new Uint8Array(buf)
 }
 
-// ─── Main handler ─────────────────────────────────────────────────────────
+// ─── Prompts ──────────────────────────────────────────────────────────────
+
+function processPrompt(langName) {
+  return `Process this document image/PDF in two steps:
+STEP 1 — Extract ALL text exactly as written (all pages).
+STEP 2 — Translate into ${langName}.
+Rules: preserve names, dates, codes, reference numbers. Natural fluent ${langName}. Return ONLY the translated text.`
+}
+
+const CHECK_PROMPT = `Assess this image for document OCR. Reply ONLY valid JSON:
+{"ok":true} if clear readable text is visible.
+{"ok":false,"issue":"brief reason"} if too blurry, dark, or no text.`
+
+function summaryPrompt(langName) {
+  return `Summarize this document in 2-3 short sentences in ${langName}. Include: document type, key names, dates, reference numbers. No preamble, go straight to facts.`
+}
+
+// ─── Main handler ──────────────────────────────────────────────────────────
 
 export default {
   async fetch(request, env) {
@@ -129,97 +135,182 @@ export default {
     const path   = new URL(request.url).pathname
 
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors })
-    if (request.method !== 'POST')    return jsonResponse({ error: 'Method not allowed' }, 405, cors)
+    if (request.method !== 'POST')    return jsonRes({ error: 'Method not allowed' }, 405, cors)
 
-    const apiKey = env.GEMINI_API_KEY
-    if (!apiKey) return jsonResponse({ error: 'API key not configured' }, 500, cors)
+    const key = env.GEMINI_API_KEY
+    if (!key) return jsonRes({ error: 'Gemini key not configured' }, 500, cors)
 
     let body
-    try { body = await request.json() } catch { return jsonResponse({ error: 'Invalid JSON' }, 400, cors) }
+    try { body = await request.json() } catch { return jsonRes({ error: 'Invalid JSON' }, 400, cors) }
 
-    // ── /process — OCR + translate (image or PDF) ──────────────────────────
+    // ══ /process — OCR + translate (Gemini) ═══════════════════════════════
     if (path === '/process') {
       const { image, mimeType = 'image/jpeg', targetLangName } = body
-      if (!image || !targetLangName) return jsonResponse({ error: 'Missing fields' }, 400, cors)
+      if (!image || !targetLangName) return jsonRes({ error: 'Missing fields' }, 400, cors)
       try {
-        const text = await geminiText(apiKey, PROCESS_MODEL, [
+        const text = await geminiGenerate(key, GEMINI_MODEL, [
           { inlineData: { mimeType, data: image } },
-          { text: buildProcessPrompt(targetLangName) },
+          { text: processPrompt(targetLangName) },
         ])
-        if (!text) return jsonResponse({ error: 'No text extracted' }, 502, cors)
-        return jsonResponse({ text }, 200, cors)
-      } catch (e) { return jsonResponse({ error: e.message }, e.status || 502, cors) }
+        if (!text) return jsonRes({ error: 'No text extracted' }, 502, cors)
+        return jsonRes({ text }, 200, cors)
+      } catch (e) { return jsonRes({ error: e.message }, e.status || 502, cors) }
     }
 
-    // ── /check — image quality assessment ─────────────────────────────────
+    // ══ /check — image quality ════════════════════════════════════════════
     if (path === '/check') {
       const { image, mimeType = 'image/jpeg' } = body
-      if (!image) return jsonResponse({ error: 'Missing image' }, 400, cors)
+      if (!image) return jsonRes({ error: 'Missing image' }, 400, cors)
       try {
-        const raw = await geminiText(apiKey, PROCESS_MODEL, [
-          { inlineData: { mimeType, data: image } },
-          { text: CHECK_PROMPT },
+        const raw  = await geminiGenerate(key, GEMINI_MODEL, [
+          { inlineData: { mimeType, data: image } }, { text: CHECK_PROMPT }
         ], { temperature: 0, maxOutputTokens: 64 })
-        // Strip markdown code fences if Gemini wraps JSON
-        const clean = raw.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/, '').trim()
-        const result = JSON.parse(clean)
-        return jsonResponse(result, 200, cors)
-      } catch (e) {
-        // If check fails, let processing continue — don't block the user
-        return jsonResponse({ ok: true }, 200, cors)
-      }
+        const clean = raw.replace(/^```[a-z]*\n?/i,'').replace(/\n?```$/,'').trim()
+        return jsonRes(JSON.parse(clean), 200, cors)
+      } catch { return jsonRes({ ok: true }, 200, cors) }
     }
 
-    // ── /summarize — 2-3 sentence summary of translated text ──────────────
+    // ══ /translate — DeepL → CF Workers AI → error ════════════════════════
+    if (path === '/translate') {
+      const { text, sourceLang = 'auto', targetLang, targetLangName } = body
+      if (!text || !targetLang) return jsonRes({ error: 'Missing fields' }, 400, cors)
+
+      const tgtBase = targetLang.split('-')[0].toLowerCase()
+
+      // 1. DeepL (best quality for supported languages)
+      if (env.DEEPL_API_KEY) {
+        const deeplTgt = TO_DEEPL[tgtBase]
+        if (deeplTgt) {
+          try {
+            const payload = { text: [text], target_lang: deeplTgt }
+            if (sourceLang !== 'auto') {
+              const srcBase = sourceLang.split('-')[0].toLowerCase()
+              const deeplSrc = TO_DEEPL[srcBase]
+              if (deeplSrc) payload.source_lang = deeplSrc.split('-')[0]
+            }
+            const r = await fetch(DEEPL_URL, {
+              method: 'POST',
+              headers: { 'Content-Type':'application/json', 'Authorization': `DeepL-Auth-Key ${env.DEEPL_API_KEY}` },
+              body: JSON.stringify(payload),
+            })
+            if (r.ok) {
+              const d = await r.json()
+              const translated = d.translations?.[0]?.text
+              if (translated) {
+                return jsonRes({ text: translated, provider: 'deepl', detectedLang: d.translations?.[0]?.detected_source_language?.toLowerCase() }, 200, cors)
+              }
+            }
+          } catch (_) {}
+        }
+      }
+
+      // 2. Cloudflare Workers AI (m2m100 — 200 languages, free)
+      if (env.AI) {
+        const cfTgt = TO_CF_AI[tgtBase]
+        const cfSrc = sourceLang !== 'auto' ? TO_CF_AI[sourceLang.split('-')[0].toLowerCase()] : 'auto'
+        if (cfTgt) {
+          try {
+            const result = await env.AI.run('@cf/meta/m2m100-1.2b', {
+              text,
+              source_lang: cfSrc || 'auto',
+              target_lang: cfTgt,
+            })
+            if (result?.translated_text) {
+              return jsonRes({ text: result.translated_text, provider: 'cf-ai' }, 200, cors)
+            }
+          } catch (_) {}
+        }
+      }
+
+      return jsonRes({ error: 'All translation services unavailable' }, 502, cors)
+    }
+
+    // ══ /summarize — Gemini → CF Workers AI ═══════════════════════════════
     if (path === '/summarize') {
       const { text, targetLangName } = body
-      if (!text || !targetLangName) return jsonResponse({ error: 'Missing fields' }, 400, cors)
+      if (!text || !targetLangName) return jsonRes({ error: 'Missing fields' }, 400, cors)
+
+      // 1. Gemini (best quality)
       try {
-        const summary = await geminiText(apiKey, PROCESS_MODEL, [
-          { text: buildSummaryPrompt(targetLangName) + '\n\n---\n\n' + text },
+        const summary = await geminiGenerate(key, GEMINI_MODEL, [
+          { text: summaryPrompt(targetLangName) + '\n\n---\n\n' + text }
         ], { temperature: 0.2, maxOutputTokens: 256 })
-        return jsonResponse({ summary }, 200, cors)
-      } catch (e) { return jsonResponse({ error: e.message }, e.status || 502, cors) }
+        if (summary) return jsonRes({ summary, provider: 'gemini' }, 200, cors)
+      } catch (_) {}
+
+      // 2. Cloudflare Workers AI (free fallback)
+      if (env.AI) {
+        try {
+          const r = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+            messages: [
+              { role: 'system', content: `Summarize the following document in 2-3 sentences in ${targetLangName}. Be concise and factual.` },
+              { role: 'user',   content: text.slice(0, 3000) },
+            ],
+            max_tokens: 200,
+          })
+          const summary = r?.response?.trim()
+          if (summary) return jsonRes({ summary, provider: 'cf-ai' }, 200, cors)
+        } catch (_) {}
+      }
+
+      return jsonRes({ error: 'Summary unavailable' }, 502, cors)
     }
 
-    // ── /tts — text to speech via Gemini TTS ──────────────────────────────
+    // ══ /tts — Gemini TTS → Google Cloud TTS → error ═════════════════════
     if (path === '/tts') {
-      const { text, lang = 'fr' } = body
-      if (!text) return jsonResponse({ error: 'Missing text' }, 400, cors)
+      const { text, lang = 'fr', langName } = body
+      if (!text) return jsonRes({ error: 'Missing text' }, 400, cors)
 
+      // 1. Gemini TTS
       try {
-        const res = await fetch(`${GEMINI_BASE}/${TTS_MODEL}:generateContent?key=${apiKey}`, {
+        const r = await fetch(`${GEMINI_BASE}/${GEMINI_TTS}:generateContent?key=${key}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [{ text }] }],
             generationConfig: {
               response_modalities: ['AUDIO'],
-              speech_config: {
-                voice_config: { prebuilt_voice_config: { voice_name: 'Kore' } },
-              },
+              speech_config: { voice_config: { prebuilt_voice_config: { voice_name: 'Kore' } } },
             },
           }),
         })
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}))
-          return jsonResponse({ error: err.error?.message || `TTS HTTP ${res.status}` }, res.status >= 500 ? 502 : res.status, cors)
+        if (r.ok) {
+          const d = await r.json()
+          const part = d.candidates?.[0]?.content?.parts?.[0]?.inlineData
+          if (part?.data) {
+            const wav = pcmToWav(part.data)
+            return new Response(wav, { status: 200, headers: { 'Content-Type': 'audio/wav', ...cors } })
+          }
         }
+      } catch (_) {}
 
-        const data = await res.json()
-        const part = data.candidates?.[0]?.content?.parts?.[0]?.inlineData
-        if (!part?.data) return jsonResponse({ error: 'No audio returned' }, 502, cors)
+      // 2. Google Cloud TTS (official, better voices, SSML support)
+      if (env.GOOGLE_TTS_KEY) {
+        try {
+          // Build BCP-47 voice code — use neutral gender for widest language support
+          const langCode = lang.includes('-') ? lang : `${lang}-${lang.toUpperCase()}`
+          const r = await fetch(`${GOOGLE_TTS_URL}?key=${env.GOOGLE_TTS_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              input: { text },
+              voice: { languageCode: langCode, ssmlGender: 'NEUTRAL' },
+              audioConfig: { audioEncoding: 'MP3', speakingRate: 0.95 },
+            }),
+          })
+          if (r.ok) {
+            const d = await r.json()
+            if (d.audioContent) {
+              const mp3 = Uint8Array.from(atob(d.audioContent), c => c.charCodeAt(0))
+              return new Response(mp3, { status: 200, headers: { 'Content-Type': 'audio/mpeg', ...cors } })
+            }
+          }
+        } catch (_) {}
+      }
 
-        // Convert PCM → WAV for universal browser playback
-        const wav = pcmToWav(part.data)
-        return new Response(wav, {
-          status: 200,
-          headers: { 'Content-Type': 'audio/wav', ...cors },
-        })
-      } catch (e) { return jsonResponse({ error: e.message }, 502, cors) }
+      return jsonRes({ error: 'TTS unavailable' }, 502, cors)
     }
 
-    return jsonResponse({ error: 'Not found' }, 404, cors)
+    return jsonRes({ error: 'Not found' }, 404, cors)
   },
 }

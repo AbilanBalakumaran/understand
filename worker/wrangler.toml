@@ -1,3 +1,7 @@
-name = "understand-gemini-ocr"
+name = "sweet-credit-4b8a"
 main = "gemini-proxy.js"
 compatibility_date = "2024-01-01"
+
+# Cloudflare Workers AI — free, no external API key needed
+[ai]
+binding = "AI"

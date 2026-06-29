@@ -1,5 +1,22 @@
-const CHUNK_SIZE = 4800  // Google unofficial API supports up to ~5000 chars
+const CHUNK_SIZE = 4800
 const DELAY_MS   = 150
+const WORKER_URL = import.meta.env.VITE_GEMINI_WORKER_URL || null
+
+// ─── DeepL / Cloudflare AI via Worker ─────────────────────────────────────
+// Tried BEFORE Google Translate for better quality on native PDF text.
+
+async function workerTranslate(text, sourceLang, targetLang) {
+  if (!WORKER_URL) throw new Error('NO_WORKER')
+  const res = await fetch(WORKER_URL + '/translate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, sourceLang, targetLang }),
+    signal: abortAfter(15000),
+  })
+  const data = await res.json()
+  if (!res.ok || !data.text) throw new Error(data.error || 'Worker translate failed')
+  return { translated: data.text, detectedLang: data.detectedLang || null, provider: data.provider }
+}
 
 // AbortSignal.timeout is available Chrome 103+, Firefox 100+, Safari 16+.
 // For older browsers (some Android < 2022), fall back to a manual abort.
@@ -128,16 +145,25 @@ function sleep(ms) {
 // ─── Per-chunk translation with cascade fallback ───────────────────────────
 //
 // Priority:
-//   1. Google Translate unofficial (no key, all scripts, very reliable)
-//   2. MyMemory (Latin targets only — non-Latin returns transliterations)
-//   3. Lingva (last resort)
+//   1. Worker (DeepL → Cloudflare AI) — best quality for supported languages
+//   2. Google Translate unofficial    — reliable, all scripts
+//   3. MyMemory                       — Latin only
+//   4. Lingva                         — last resort
 
-// Returns { text, detectedLang } — detectedLang only available from Google
 async function translateChunk(chunk, sourceLang, targetLang) {
   const tgtBase = targetLang.split('-')[0]
   const isNonLatinTarget = !LATIN_LANG_CODES.has(tgtBase)
 
-  // Try Google first (always — handles all scripts perfectly)
+  // 1. Worker: DeepL or Cloudflare AI (best quality)
+  try {
+    const { translated, detectedLang } = await workerTranslate(chunk, sourceLang, targetLang)
+    if (translated?.trim()) {
+      if (detectedLang && detectedLang.split('-')[0] === tgtBase) return { text: chunk, detectedLang }
+      return { text: translated, detectedLang }
+    }
+  } catch (_) {}
+
+  // 2. Google Translate (all scripts, no key)
   try {
     const { translated, detectedLang } = await googleTranslate(chunk, sourceLang, targetLang)
 
@@ -153,11 +179,9 @@ async function translateChunk(chunk, sourceLang, targetLang) {
       return { text: chunk, detectedLang }
     }
     return { text: translated, detectedLang }
-  } catch (googleErr) {
-    console.warn('[translate] Google failed:', googleErr.message)
-  }
+  } catch (_) {}
 
-  // Non-Latin targets: skip MyMemory (returns Latin transliterations)
+  // 3. MyMemory (Latin targets only)
   if (!isNonLatinTarget) {
     try {
       const result = await myMemoryTranslate(chunk, sourceLang, targetLang)
@@ -172,7 +196,7 @@ async function translateChunk(chunk, sourceLang, targetLang) {
     }
   }
 
-  // Last resort: Lingva
+  // 4. Last resort: Lingva
   const result = await lingvaTranslate(chunk, sourceLang, targetLang)
   return { text: result, detectedLang: null }
 }
