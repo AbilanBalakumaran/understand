@@ -20,6 +20,48 @@ function cleanNativePdfText(text) {
     .trim()
 }
 
+// Reconstruct fragmented OCR lines into coherent fields.
+// OCR often splits a single field across two lines, e.g.:
+//   "TITRE\nDE SEJOUR" → "TITRE DE SEJOUR"
+//   "Nationalité :\nMarocaine" → "Nationalité : Marocaine"
+//   "Valable jusqu\nau : 31/12/2025" → "Valable jusqu au : 31/12/2025"
+// Rules:
+//   - Short consecutive ALL-CAPS header words are merged (document title)
+//   - A line ending in ':' is merged with the next line (field + value)
+//   - A line starting with a lowercase connector word is appended to previous
+function reconstructOCRLines(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+  const out = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const prev = out.length > 0 ? out[out.length - 1] : ''
+
+    // Previous line ends with ':' → current line is the field value
+    if (prev.endsWith(':') && line && !line.includes(':')) {
+      out[out.length - 1] = prev + ' ' + line
+      continue
+    }
+
+    // Two consecutive short ALL-CAPS lines → merge (document header)
+    if (prev.match(/^[A-ZÀ-Ü\s]{2,}$/) && prev.length < 30
+        && line.match(/^[A-ZÀ-Ü\s]{2,}$/) && line.length < 30) {
+      out[out.length - 1] = prev + ' ' + line
+      continue
+    }
+
+    // Line starts with a lowercase connector → continuation of previous
+    if (prev && !prev.endsWith('.') && !prev.endsWith(':')
+        && line.match(/^(au|de|du|le|la|les|un|une|à|en|et|ou|the|of|to|in|and|at)\s/i)) {
+      out[out.length - 1] = prev + ' ' + line
+      continue
+    }
+
+    out.push(line)
+  }
+  return out.join('\n')
+}
+
 // OCR noise filter — removes only scanner garbage, nothing else.
 // We no longer strip target-script characters: the OSD-based OCR pipeline
 // already uses the correct Tesseract model per script, so cross-script
@@ -130,13 +172,17 @@ export default function App() {
           throw new Error("Aucun texte lisible dans l'image. Prenez une photo plus nette.")
         }
 
-        const cleanedText = isNative
+        const cleaned = isNative
           ? cleanNativePdfText(rawText)
           : cleanOCRText(rawText)
 
-        if (!cleanedText || cleanedText.trim().length < 3) {
+        if (!cleaned || cleaned.trim().length < 3) {
           throw new Error("Le texte extrait ne contient pas de contenu lisible. Essayez avec une photo du document seul.")
         }
+
+        // Reconstruct fragmented OCR lines so the translation engine receives
+        // coherent text. This is the key step for readable, consistent output.
+        const cleanedText = isNative ? cleaned : reconstructOCRLines(cleaned)
 
         const { text: translated, detectedLang: dl } = await translateText(cleanedText, sl || 'auto', tl.code, (p) => setTranslateProgress(p))
         if (stale()) return
