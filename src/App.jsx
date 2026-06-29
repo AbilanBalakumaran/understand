@@ -74,7 +74,7 @@ export default function App() {
     setImagePreview(preview)
   }, [])
 
-  const handleLanguageConfirm = async ({ targetLang: tl }) => {
+  const handleLanguageConfirm = async ({ targetLang: tl, sourceLang: sl }) => {
     if (!imageFile) return  // guard: no image selected (shouldn't happen, but safe)
     const myRunId = ++runIdRef.current  // capture unique ID for this run
     const stale = () => runIdRef.current !== myRunId  // true if superseded
@@ -137,7 +137,7 @@ export default function App() {
           throw new Error("Le texte extrait ne contient pas de contenu lisible. Essayez avec une photo du document seul.")
         }
 
-        const { text: translated, detectedLang: dl } = await translateText(cleanedText, 'auto', tl.code, (p) => setTranslateProgress(p))
+        const { text: translated, detectedLang: dl } = await translateText(cleanedText, sl || 'auto', tl.code, (p) => setTranslateProgress(p))
         if (stale()) return
 
         setTranslateProgress(100)
