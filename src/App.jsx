@@ -72,6 +72,7 @@ export default function App() {
   }, [])
 
   const handleLanguageConfirm = async ({ targetLang: tl }) => {
+    if (!imageFile) return  // guard: no image selected (shouldn't happen, but safe)
     cancelRef.current = false  // reset any previous cancellation
     setTargetLang(tl)
     setStep(STEP.AUDIO)
@@ -164,6 +165,7 @@ export default function App() {
   }
 
   const handleStartOver = () => {
+    cancelRef.current = true   // stop any in-flight processing before resetting
     setStep(STEP.UPLOAD)
     setImageFile(null)
     setImagePreview(null)

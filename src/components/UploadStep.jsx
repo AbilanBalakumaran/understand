@@ -107,7 +107,10 @@ export default function UploadStep({ onImageSelected }) {
       return
     }
 
-    if (!f.type.startsWith('image/')) return
+    // Accept images even when the browser reports no MIME type (common on Android).
+    const ext = f.name?.split('.').pop()?.toLowerCase() ?? ''
+    const isImage = f.type.startsWith('image/') || ['jpg','jpeg','png','webp','gif','bmp','heic','heif'].includes(ext)
+    if (!isImage) return
 
     const url = URL.createObjectURL(f)
     setBaseFile(f);    setBasePreview(url)

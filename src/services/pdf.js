@@ -41,16 +41,20 @@ export async function convertPdfToImages(file, maxPages = 10, scale = 2) {
   const blobs       = []
 
   for (let i = 1; i <= total; i++) {
-    const page     = await pdf.getPage(i)
-    const viewport = page.getViewport({ scale })
-    const canvas   = document.createElement('canvas')
-    canvas.width   = Math.floor(viewport.width)
-    canvas.height  = Math.floor(viewport.height)
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
-    const blob = await new Promise((resolve, reject) => {
-      canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/jpeg', 0.92)
-    })
-    blobs.push(blob)
+    try {
+      const page     = await pdf.getPage(i)
+      const viewport = page.getViewport({ scale })
+      const canvas   = document.createElement('canvas')
+      canvas.width   = Math.floor(viewport.width)
+      canvas.height  = Math.floor(viewport.height)
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
+      const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/jpeg', 0.92)
+      })
+      blobs.push(blob)
+    } catch (_) {
+      // Skip pages that fail to render — keep what we have
+    }
   }
   return blobs
 }

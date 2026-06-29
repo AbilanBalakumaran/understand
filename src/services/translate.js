@@ -52,7 +52,11 @@ const LATIN_LANG_CODES = new Set([
 ])
 
 async function myMemoryTranslate(text, sourceLang, targetLang) {
-  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`
+  // MyMemory rejects 'auto' as source — use 'en' as neutral guess for unknown source.
+  // This fallback is only reached when Google is down, so the detected language
+  // is unavailable anyway; 'en' is the most common administrative document language.
+  const src = (!sourceLang || sourceLang === 'auto') ? 'en' : sourceLang
+  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${src}|${targetLang}`
   const res = await fetch(url, { signal: abortAfter(10000) })
   if (!res.ok) throw new Error(`MyMemory HTTP ${res.status}`)
   const data = await res.json()
@@ -177,8 +181,12 @@ async function translateChunk(chunk, sourceLang, targetLang) {
 
 function cleanTranslatedText(text) {
   return text
-    .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
-    .replace(/[​-‏‪-‮⁠-⁤﻿]/g, '')
+    .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')   // control chars
+    // Strip only invisible formatting characters that serve no display purpose.
+    // U+200C (ZWNJ) and U+200D (ZWJ) are intentionally preserved:
+    //   ZWNJ is required for correct Farsi/Urdu word breaks.
+    //   ZWJ is required for multi-part emoji sequences (👨‍👩‍👧).
+    .replace(/[​‎‏‪-‮⁠-⁤﻿]/g, '')
     .replace(/[^\S\n]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
