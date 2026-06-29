@@ -261,7 +261,31 @@ export default {
       const { text, lang = 'fr', langName } = body
       if (!text) return jsonRes({ error: 'Missing text' }, 400, cors)
 
-      // 1. Gemini TTS
+      // 1. ElevenLabs (best voice quality, multilingual)
+      if (env.ELEVENLABS_API_KEY) {
+        try {
+          const r = await fetch('https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM', {
+            method: 'POST',
+            headers: {
+              'xi-api-key': env.ELEVENLABS_API_KEY,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              text,
+              model_id: 'eleven_multilingual_v2',
+              voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+            }),
+          })
+          if (r.ok) {
+            const mp3 = await r.arrayBuffer()
+            if (mp3.byteLength > 100) {
+              return new Response(mp3, { status: 200, headers: { 'Content-Type': 'audio/mpeg', ...cors } })
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 2. Gemini TTS
       try {
         const r = await fetch(`${GEMINI_BASE}/${GEMINI_TTS}:generateContent?key=${key}`, {
           method: 'POST',
