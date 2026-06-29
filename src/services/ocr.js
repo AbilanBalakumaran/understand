@@ -256,8 +256,12 @@ export async function extractTextAuto(image, onProgress, knownLang = null) {
   if (knownLang && knownLang !== 'auto') {
     const tessCode = ISO1_TO_TESSERACT[knownLang] || ISO1_TO_TESSERACT[knownLang.split('-')[0]]
     if (tessCode) {
-      // Use combined model (+ fra) to also capture Latin digits, dates, etc.
-      const combined = COMBINED_MODELS[tessCode] || (tessCode + '+fra')
+      // Latin-script languages already share the same alphabet — adding +fra
+      // would just load the same font model twice. Use fra+eng for all Latin
+      // scripts (handles any mix of European languages and digits).
+      // Non-Latin scripts get their combined model to capture Latin digits/dates.
+      const LATIN_TESS = new Set(['fra','eng','spa','deu','ita','por','nld','swe','dan','fin','nor','ces','slk','ron','hun','hrv','bul','srp','slv','est','lav','lit','tur','pol','ukr'])
+      const combined = LATIN_TESS.has(tessCode) ? 'fra+eng' : (COMBINED_MODELS[tessCode] || (tessCode + '+fra'))
       const text = await extractText(processedImage, combined, (p) => {
         onProgress?.(30 + Math.round(p * 0.7))
       })

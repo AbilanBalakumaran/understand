@@ -5,7 +5,15 @@ import { useAppLang } from '../context/AppLang'
 const STORAGE_KEY  = 'understand_lastTargetLang'
 const RECENT_KEY   = 'understand_recentTargets'
 const FAV_KEY      = 'understand_favTargets'
+const SRC_KEY      = 'understand_lastSourceLang'
 const MAX_RECENT   = 5
+
+function loadLastSource() {
+  try { return localStorage.getItem(SRC_KEY) || '' } catch { return '' }
+}
+function saveLastSource(code) {
+  try { localStorage.setItem(SRC_KEY, code) } catch {}
+}
 
 function loadLastTarget() {
   try {
@@ -123,7 +131,7 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
   const [selectedTarget, setSelectedTarget] = useState(() => loadLastTarget())
   const [recentTargets, setRecentTargets]   = useState(() => loadList(RECENT_KEY))
   const [favorites, setFavorites]           = useState(() => loadList(FAV_KEY))
-  const [sourceLang, setSourceLang]         = useState('')
+  const [sourceLang, setSourceLang]         = useState(() => loadLastSource())
 
   // Image zoom modal
   const [modalOpen, setModalOpen] = useState(false)
@@ -228,7 +236,7 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
               <select
                 required
                 value={sourceLang}
-                onChange={e => setSourceLang(e.target.value)}
+                onChange={e => { setSourceLang(e.target.value); saveLastSource(e.target.value) }}
                 className={`w-full appearance-none rounded-2xl px-4 py-3.5 pr-10 text-sm border-2 outline-none transition-colors ${
                   sourceLang
                     ? 'border-green-500 bg-green-50 text-gray-800 focus:ring-2 focus:ring-green-400'
