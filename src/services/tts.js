@@ -1,15 +1,20 @@
 /**
- * TTS entièrement via internet (Lingva Translate → Google TTS côté serveur).
- * Supporte Tamil, Hindi, Arabe et toutes les langues sans voix installée sur l'appareil.
- * Fallback : Web Speech API si Lingva est indisponible.
+ * TTS pipeline — two layers:
+ *
+ * 1. generateAudio  (ready mode, seek bar)
+ *    Fetches all chunks from Lingva and merges them into a single MP3 blob.
+ *    If any Lingva instance fails → returns null (caller falls back to streaming).
+ *
+ * 2. speak  (streaming mode — always works)
+ *    Uses Google TTS URLs directly via <audio> elements.
+ *    No CORS issue: <audio src> loads cross-origin without restrictions.
+ *    Supports ALL languages (same backend as our translation API).
+ *    Fallback: Web Speech API if audio element fails to load.
  */
 
 const MAX_CHUNK = 180
 
-const LINGVA_INSTANCES = [
-  'https://lingva.ml',
-  'https://translate.plausibility.cloud',
-]
+// ─── Chunk splitter ────────────────────────────────────────────────────────
 
 export function splitIntoChunks(text) {
   if (text.length <= MAX_CHUNK) return [text]
@@ -17,7 +22,7 @@ export function splitIntoChunks(text) {
   const sentences = text
     .replace(/([.!?।。！？])\s+/g, '$1\n')
     .split('\n')
-    .map((s) => s.trim())
+    .map(s => s.trim())
     .filter(Boolean)
 
   const chunks = []
@@ -49,24 +54,39 @@ export function splitIntoChunks(text) {
   return chunks.length ? chunks : [text.slice(0, MAX_CHUNK)]
 }
 
-// ─── Lingva TTS ────────────────────────────────────────────────────────────
+// ─── AbortSignal polyfill ─────────────────────────────────────────────────
+// AbortSignal.timeout is Chrome 103+ / Firefox 100+ / Safari 16+.
+// Older Android devices fall back to manual abort.
 
-let isActive = false
-let currentAudio = null
-let objectUrls = []
-
-function cleanupUrls() {
-  objectUrls.forEach((u) => { try { URL.revokeObjectURL(u) } catch (_) {} })
-  objectUrls = []
+function abortAfter(ms) {
+  if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(ms)
+  const ac = new AbortController()
+  setTimeout(() => ac.abort(), ms)
+  return ac.signal
 }
 
-/** Fetches a single chunk from Lingva and returns the raw MP3 Blob (or null). */
+// ─── Google TTS URL (direct, no API key, all languages) ───────────────────
+// Same endpoint pattern as our translation API. <audio src=url> loads it
+// without CORS restrictions — no fetch() needed.
+
+function googleTtsUrl(text, langBcp47) {
+  const lang = langBcp47.split('-')[0]
+  return `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${lang}&client=gtx`
+}
+
+// ─── Lingva TTS (blob fetch — only used for generateAudio seek bar) ───────
+
+const LINGVA_INSTANCES = [
+  'https://lingva.ml',
+  'https://translate.plausibility.cloud',
+]
+
 async function fetchLingvaBlob(text, langBcp47) {
   const lang = langBcp47.split('-')[0]
   for (const instance of LINGVA_INSTANCES) {
     try {
       const url = `${instance}/api/v1/audio/${lang}/${encodeURIComponent(text)}`
-      const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
+      const res = await fetch(url, { signal: abortAfter(10000) })
       if (!res.ok) continue
       const data = await res.json()
       if (!Array.isArray(data.audio) || !data.audio.length) continue
@@ -76,19 +96,26 @@ async function fetchLingvaBlob(text, langBcp47) {
   return null
 }
 
-async function fetchLingvaAudio(text, langBcp47) {
-  const blob = await fetchLingvaBlob(text, langBcp47)
-  if (!blob) return null
-  const objectUrl = URL.createObjectURL(blob)
-  objectUrls.push(objectUrl)
-  return objectUrl
+// ─── Shared state ─────────────────────────────────────────────────────────
+
+let isActive = false
+let currentAudio = null
+let objectUrls = []
+
+function cleanupUrls() {
+  objectUrls.forEach(u => { try { URL.revokeObjectURL(u) } catch (_) {} })
+  objectUrls = []
 }
 
-function speakWithLingva(text, lang, { rate = 0.9, onEnd, onError, onChunkStart } = {}) {
+// ─── Google TTS streaming (speak mode) ────────────────────────────────────
+// Plays chunks sequentially via <audio src=googleTtsUrl>.
+// Falls back to Web Speech API only if the audio element itself errors.
+
+function speakWithGoogleTts(text, lang, { rate = 1.0, onEnd, onError, onChunkStart } = {}) {
   const chunks = splitIntoChunks(text)
   let index = 0
 
-  const playNext = async () => {
+  const playNext = () => {
     if (!isActive) { cleanupUrls(); return }
     if (index >= chunks.length) {
       isActive = false
@@ -99,39 +126,30 @@ function speakWithLingva(text, lang, { rate = 0.9, onEnd, onError, onChunkStart 
 
     const chunkIndex = index
     const chunk = chunks[index++]
-    onChunkStart?.(chunkIndex)         // ← notifie quel chunk est en cours
+    onChunkStart?.(chunkIndex)
 
-    const audioUrl = await fetchLingvaAudio(chunk, lang)
-
-    if (!audioUrl) {
-      speakWithWebSpeech(text, lang, { rate, onEnd, onError, onChunkStart })
-      return
-    }
-
-    const audio = new Audio(audioUrl)
+    const audio = new Audio(googleTtsUrl(chunk, lang))
     currentAudio = audio
     try { audio.playbackRate = Math.min(Math.max(rate, 0.5), 2) } catch (_) {}
 
     audio.addEventListener('ended', () => playNext(), { once: true })
+
     audio.addEventListener('error', () => {
       if (!isActive) return
-      isActive = false
-      cleanupUrls()
-      onError?.(new Error('Impossible de lire l\'audio. Vérifiez votre connexion internet.'))
+      // Google TTS failed (network, CORS quirk, etc.) — try Web Speech
+      speakWithWebSpeech(text, lang, { rate, onEnd, onError, onChunkStart })
     }, { once: true })
 
     audio.play().catch(() => {
       if (!isActive) return
-      isActive = false
-      cleanupUrls()
-      onError?.(new Error('Lecture audio bloquée par le navigateur. Appuyez à nouveau sur Play.'))
+      speakWithWebSpeech(text, lang, { rate, onEnd, onError, onChunkStart })
     })
   }
 
   playNext()
 }
 
-// ─── Web Speech API (fallback) ─────────────────────────────────────────────
+// ─── Web Speech API (last-resort fallback) ────────────────────────────────
 
 let currentUtterance = null
 
@@ -140,15 +158,15 @@ function getBestVoice(lang) {
   if (!voices.length) return null
   const base = lang.split('-')[0].toLowerCase()
   return (
-    voices.find((v) => v.lang.toLowerCase() === lang.toLowerCase()) ||
-    voices.find((v) => v.lang.toLowerCase().startsWith(base)) ||
+    voices.find(v => v.lang.toLowerCase() === lang.toLowerCase()) ||
+    voices.find(v => v.lang.toLowerCase().startsWith(base)) ||
     null
   )
 }
 
-function speakWithWebSpeech(text, lang, { rate = 0.9, onEnd, onError, onChunkStart } = {}) {
+function speakWithWebSpeech(text, lang, { rate = 1.0, onEnd, onError, onChunkStart } = {}) {
   if (!('speechSynthesis' in window)) {
-    onError?.(new Error('Synthèse vocale non supportée. Vérifiez votre connexion internet.'))
+    onError?.(new Error('Synthèse vocale non supportée sur cet appareil.'))
     return
   }
 
@@ -162,8 +180,8 @@ function speakWithWebSpeech(text, lang, { rate = 0.9, onEnd, onError, onChunkSta
     if (!voice && voices.length > 0) {
       isActive = false
       onError?.(new Error(
-        `Voix "${lang.split('-')[0]}" non installée et Lingva indisponible.\n` +
-        `Réessayez dans quelques instants.`
+        `Voix "${lang.split('-')[0]}" non disponible sur cet appareil.\n` +
+        `Vérifiez votre connexion internet et réessayez.`
       ))
       return
     }
@@ -173,17 +191,15 @@ function speakWithWebSpeech(text, lang, { rate = 0.9, onEnd, onError, onChunkSta
   const speakNext = () => {
     if (!isActive) return
     if (index >= chunks.length) { isActive = false; onEnd?.(); return }
-
     const chunkIndex = index
     const utter = new SpeechSynthesisUtterance(chunks[index++])
     currentUtterance = utter
-    onChunkStart?.(chunkIndex)         // ← notifie quel chunk est en cours
+    onChunkStart?.(chunkIndex)
     utter.lang = lang
     utter.rate = Math.min(Math.max(rate, 0.5), 2)
     if (voice) utter.voice = voice
-
     utter.onend = speakNext
-    utter.onerror = (e) => {
+    utter.onerror = e => {
       if (e.error === 'canceled' || e.error === 'interrupted') return
       if (!isActive) return
       isActive = false
@@ -201,7 +217,7 @@ function speakWithWebSpeech(text, lang, { rate = 0.9, onEnd, onError, onChunkSta
   }
 }
 
-// ─── API publique ──────────────────────────────────────────────────────────
+// ─── Public API ────────────────────────────────────────────────────────────
 
 export function stopSpeech() {
   isActive = false
@@ -232,30 +248,19 @@ export function isSpeaking() {
 }
 
 /**
- * Lit le texte traduit dans la langue cible via internet (Lingva TTS).
- * Doit être appelé depuis un geste utilisateur (tap/click) pour iOS.
- *
- * @param {string} text
- * @param {string} lang - BCP-47 ex: 'ta-IN', 'fr-FR'
- * @param {{ rate?, onEnd?, onError?, onChunkStart? }} options
- *   onChunkStart(index) appelé au début de chaque chunk lu
+ * Streams the translated text via Google TTS (always works, all languages).
+ * Falls back to Web Speech API only if the audio element itself errors.
  */
-export function speak(text, lang, { rate = 0.9, onEnd, onError, onChunkStart } = {}) {
+export function speak(text, lang, { rate = 1.0, onEnd, onError, onChunkStart } = {}) {
   stopSpeech()
   isActive = true
-  speakWithLingva(text, lang, { rate, onEnd, onError, onChunkStart })
+  speakWithGoogleTts(text, lang, { rate, onEnd, onError, onChunkStart })
 }
 
 /**
- * Pre-fetches ALL chunks from Lingva and concatenates them into a single MP3 Blob.
- * Returns { blob, chunks } on success, or null if Lingva is unavailable.
- *
- * @param {string}   text
- * @param {string}   lang        - BCP-47
- * @param {{ onProgress?, signal? }} options
- *   onProgress(0-100) called after each chunk is fetched
- *   signal  AbortSignal to cancel the operation
- * @returns {Promise<{ blob: Blob, chunks: string[] } | null>}
+ * Pre-fetches all chunks from Lingva → single MP3 blob (enables seek bar).
+ * Returns { blob, chunks } or null if Lingva is unavailable.
+ * Caller falls back to speak() (streaming via Google TTS) when null.
  */
 export async function generateAudio(text, lang, { onProgress, signal } = {}) {
   const chunks = splitIntoChunks(text)
@@ -263,16 +268,12 @@ export async function generateAudio(text, lang, { onProgress, signal } = {}) {
 
   for (let i = 0; i < chunks.length; i++) {
     if (signal?.aborted) return null
-
     const blob = await fetchLingvaBlob(chunks[i], lang)
-
     if (signal?.aborted) return null
-    if (!blob) return null   // Lingva down → caller falls back to streaming
-
+    if (!blob) return null
     blobs.push(blob)
     onProgress?.(Math.round(((i + 1) / chunks.length) * 100))
   }
 
-  const combined = new Blob(blobs, { type: 'audio/mpeg' })
-  return { blob: combined, chunks }
+  return { blob: new Blob(blobs, { type: 'audio/mpeg' }), chunks }
 }

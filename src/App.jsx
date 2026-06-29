@@ -10,32 +10,6 @@ import { requestNotifPermission, sendNotification } from './services/notificatio
 
 const STEP = { UPLOAD: 0, LANGUAGE: 1, AUDIO: 2 }
 
-/**
- * Unicode ranges per script — used to strip target-script noise from OCR text.
- */
-const TARGET_SCRIPT_REGEX = {
-  ta: /[஀-௿]/g,
-  te: /[ఀ-౿]/g,
-  kn: /[ಀ-೿]/g,
-  ml: /[ഀ-ൿ]/g,
-  si: /[඀-෿]/g,
-  hi: /[ऀ-ॿ]/g,
-  mr: /[ऀ-ॿ]/g,
-  ne: /[ऀ-ॿ]/g,
-  ar: /[؀-ۿݐ-ݿ]/g,
-  ur: /[؀-ۿݐ-ݿ]/g,
-  fa: /[؀-ۿݐ-ݿ]/g,
-  'zh-CN': /[一-鿿㐀-䶿]/g,
-  'zh-TW': /[一-鿿㐀-䶿]/g,
-  ja: /[぀-ヿ一-鿿]/g,
-  ko: /[가-힯]/g,
-  ru: /[Ѐ-ӿ]/g,
-  uk: /[Ѐ-ӿ]/g,
-  ka: /[Ⴀ-ჿ]/g,
-  hy: /[԰-֏]/g,
-  am: /[ሀ-፿]/g,
-}
-
 // Light cleaning for native PDF text — only normalise whitespace and strip
 // invisible control characters. Never filters valid content.
 function cleanNativePdfText(text) {
@@ -46,29 +20,21 @@ function cleanNativePdfText(text) {
     .trim()
 }
 
-// OCR noise filter — only removes lines that are clearly scanner garbage:
-// pure symbol runs, extremely low letter density (< 10%), or page-number
-// timestamps. Does NOT filter administrative codes, acronyms, or amounts.
-function cleanOCRText(text, targetLangCode) {
-  const scriptRegex = TARGET_SCRIPT_REGEX[targetLangCode]
-  let processed = scriptRegex
-    ? text.replace(new RegExp(scriptRegex.source, 'g'), '')
-    : text
-
-  const lines   = processed.split('\n').map((l) => l.trim()).filter(Boolean)
-  const cleaned = lines.filter((line) => {
+// OCR noise filter — removes only scanner garbage, nothing else.
+// We no longer strip target-script characters: the OSD-based OCR pipeline
+// already uses the correct Tesseract model per script, so cross-script
+// hallucinations no longer occur. Stripping by script caused identity-case
+// failures (e.g. Arabic doc → Arabic target → all Arabic text erased).
+function cleanOCRText(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+  const cleaned = lines.filter(line => {
     const letters = (line.match(/\p{L}/gu) || [])
-    // Remove lines with zero letters (pure symbols/numbers noise)
-    if (letters.length === 0) return false
-    // Remove lines starting with noise characters (common OCR artefacts)
-    if (/^[|_=+*#~`]{3,}/.test(line)) return false
-    // Remove HH:MM timestamps (usually OCR'd from video/screen artefacts)
-    if (/^\d{1,2}:\d{2}$/.test(line)) return false
-    // Remove lines where letters make up less than 10% (e.g. "| 1 | 1 | 1 |")
-    if (letters.length < line.replace(/\s/g, '').length * 0.10) return false
+    if (letters.length === 0) return false                        // pure symbols/numbers
+    if (/^[|_=+*#~`]{3,}/.test(line)) return false               // scanner border artefacts
+    if (/^\d{1,2}:\d{2}$/.test(line)) return false               // video timestamps
+    if (letters.length < line.replace(/\s/g, '').length * 0.10) return false // < 10% letters
     return true
   })
-
   return cleaned.join('\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
@@ -159,7 +125,7 @@ export default function App() {
         // Use light cleaning for native PDF (no OCR noise), full filter for images
         const cleanedText = isNative
           ? cleanNativePdfText(rawText)
-          : cleanOCRText(rawText, tl.code)
+          : cleanOCRText(rawText)
 
         if (!cleanedText || cleanedText.trim().length < 3) {
           throw new Error("Le texte extrait ne contient pas de contenu lisible. Essayez avec une photo du document seul.")

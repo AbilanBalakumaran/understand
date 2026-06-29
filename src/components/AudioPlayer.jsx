@@ -56,7 +56,6 @@ export default function AudioPlayer({
   const isReady   = !isProcessing && !error && translatedText
   const ocrDone   = ocrProgress >= 100
   const transDone = translateProgress >= 100
-  const verifying = isProcessing && ocrDone && transDone
 
   /* ── audio-generation phase ── */
   // 'idle' | 'loading' | 'ready' | 'streaming'
@@ -337,7 +336,7 @@ export default function AudioPlayer({
         <div className="flex-1 min-w-0">
           <h2 className="font-bold text-white text-lg leading-tight">
             {isProcessing
-              ? (verifying ? 'Vérification…' : 'Traitement…')
+              ? 'Traitement…'
               : error ? 'Une erreur est survenue'
               : 'Audio prêt !'}
           </h2>
@@ -361,17 +360,6 @@ export default function AudioPlayer({
           <div className="space-y-3 mt-2">
             <ProgressItem label="Lecture du document"        icon={<ScanIcon />}      progress={ocrProgress}       done={ocrDone} />
             <ProgressItem label={`Traduction en ${targetLang.name}`} icon={<TranslateIcon />} progress={ocrDone ? translateProgress : 0} done={transDone} disabled={!ocrDone} />
-            {verifying && (
-              <div className="bg-primary-50 border border-primary-100 rounded-2xl p-4 flex items-center gap-3">
-                <svg className="w-5 h-5 text-primary-600 spin-slow shrink-0" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeDashoffset="10" strokeLinecap="round"/>
-                </svg>
-                <div>
-                  <p className="text-sm font-semibold text-primary-700">Vérification de la traduction…</p>
-                  <p className="text-xs text-primary-500">On s'assure que tout est bien en {targetLang.name}</p>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
