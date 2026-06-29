@@ -117,7 +117,8 @@ function detectDominantScript(text) {
 // ─── Tesseract OSD — script detection ────────────────────────────────────────
 
 async function detectScriptViaOsd(image) {
-  try {
+  // Race OSD against a 10 s timeout — slow/offline CDN must not block OCR.
+  const osdRace = async () => {
     const worker = await createWorker('osd', 0, { logger: () => {} })
     try {
       const { data } = await worker.detect(image)
@@ -125,6 +126,11 @@ async function detectScriptViaOsd(image) {
     } finally {
       await worker.terminate()
     }
+  }
+
+  const timeout = new Promise(resolve => setTimeout(() => resolve(null), 10000))
+  try {
+    return await Promise.race([osdRace(), timeout])
   } catch {
     return null
   }

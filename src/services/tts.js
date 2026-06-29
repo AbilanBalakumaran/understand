@@ -16,7 +16,11 @@ export function splitIntoChunks(text) {
   if (text.length <= MAX_CHUNK) return [text]
 
   const sentences = text
-    .replace(/([.!?।。！？])\s+/g, '$1\n')
+    // Latin/Arabic: split on sentence-end + whitespace (避免 splitting URLs/abbreviations).
+    // CJK/Thai: split on sentence-end chars directly (no spaces between sentences).
+    // U+061F = ؟ (Arabic ?), U+06D4 = ۔ (Urdu .), U+3002 = 。(CJK .), U+FF01/FF1F = ！？
+    .replace(/([.!?।।؟۔])\s+/g, '$1\n')   // Latin/Arabic: require trailing space
+    .replace(/([。！？])/g, '$1\n')
     .split('\n')
     .map(s => s.trim())
     .filter(Boolean)
@@ -33,11 +37,22 @@ export function splitIntoChunks(text) {
       if (sentence.length <= MAX_CHUNK) {
         current = sentence
       } else {
+        // Sentence exceeds MAX_CHUNK — split by spaces first (Latin scripts),
+        // then by hard character limit (CJK/Thai/other scripts without spaces).
         current = ''
-        for (const word of sentence.split(' ')) {
-          const w = current ? `${current} ${word}` : word
-          if (w.length <= MAX_CHUNK) { current = w }
-          else { if (current) chunks.push(current); current = word }
+        const words = sentence.split(' ')
+        if (words.length > 1) {
+          for (const word of words) {
+            const w = current ? `${current} ${word}` : word
+            if (w.length <= MAX_CHUNK) { current = w }
+            else { if (current) chunks.push(current); current = word }
+          }
+        } else {
+          // No spaces (CJK/Thai): slice at MAX_CHUNK boundaries
+          for (let i = 0; i < sentence.length; i += MAX_CHUNK) {
+            chunks.push(sentence.slice(i, i + MAX_CHUNK))
+          }
+          current = ''
         }
       }
     }

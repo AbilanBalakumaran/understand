@@ -45,8 +45,11 @@ export default function App() {
   // ── Navigation ──────────────────────────────────────────────────
   const [step, setStep]                         = useState(STEP.UPLOAD)
 
-  // ── Cancellation token — set to true when user navigates away mid-processing
-  const cancelRef = useRef(false)
+  // ── Run ID — each processing run captures its own ID at start.
+  // Any navigation or new run increments the ID; stale runs self-abort when
+  // they detect their captured ID no longer matches the current one.
+  // Fixes double-tap: a second call increments runId so the first run aborts.
+  const runIdRef = useRef(0)
 
   // ── Image ───────────────────────────────────────────────────────
   const [imageFile, setImageFile]               = useState(null)
@@ -73,7 +76,9 @@ export default function App() {
 
   const handleLanguageConfirm = async ({ targetLang: tl }) => {
     if (!imageFile) return  // guard: no image selected (shouldn't happen, but safe)
-    cancelRef.current = false  // reset any previous cancellation
+    const myRunId = ++runIdRef.current  // capture unique ID for this run
+    const stale = () => runIdRef.current !== myRunId  // true if superseded
+
     setTargetLang(tl)
     setStep(STEP.AUDIO)
     setIsProcessing(true)
@@ -83,14 +88,10 @@ export default function App() {
     setTranslatedText('')
     setDetectedLang(null)
 
-    // Ask for notification permission at the start of processing
-    // (must be triggered by a user gesture — this callback is called from a button click)
     requestNotifPermission()
 
     const run = async () => {
       try {
-        // Step 1 — Text extraction
-        // Priority: native PDF text → multi-page scanned OCR → single image OCR
         const originalPdf = imageFile?._originalPdf
         let rawText  = null
         let isNative = false
@@ -98,16 +99,16 @@ export default function App() {
         if (originalPdf) {
           setOcrProgress(20)
           rawText = await extractPdfNativeText(originalPdf, 20)
-          if (cancelRef.current) return
+          if (stale()) return
           if (rawText) {
             isNative = true
             setOcrProgress(100)
           } else {
             const pageBlobs = await convertPdfToImages(originalPdf, 10)
-            if (cancelRef.current) return
+            if (stale()) return
             const parts = []
             for (let i = 0; i < pageBlobs.length; i++) {
-              if (cancelRef.current) return
+              if (stale()) return
               const pageText = await extractTextAuto(pageBlobs[i], (p) =>
                 setOcrProgress(Math.round((i / pageBlobs.length) * 100 + p / pageBlobs.length))
               )
@@ -119,7 +120,7 @@ export default function App() {
 
         if (!rawText) {
           rawText = await extractTextAuto(imageFile, (p) => setOcrProgress(p))
-          if (cancelRef.current) return
+          if (stale()) return
         }
 
         setOcrProgress(100)
@@ -137,7 +138,7 @@ export default function App() {
         }
 
         const { text: translated, detectedLang: dl } = await translateText(cleanedText, 'auto', tl.code, (p) => setTranslateProgress(p))
-        if (cancelRef.current) return
+        if (stale()) return
 
         setTranslateProgress(100)
         const isSameLang = dl && dl.split('-')[0] === tl.code.split('-')[0]
@@ -149,10 +150,10 @@ export default function App() {
           `Votre document a été traduit en ${tl.name}. Touchez pour écouter.`
         )
       } catch (err) {
-        if (cancelRef.current) return  // user navigated away — swallow the error
+        if (stale()) return
         setError(err.message || 'Une erreur inattendue est survenue. Veuillez réessayer.')
       } finally {
-        if (!cancelRef.current) setIsProcessing(false)
+        if (!stale()) setIsProcessing(false)
       }
     }
 
@@ -165,7 +166,7 @@ export default function App() {
   }
 
   const handleStartOver = () => {
-    cancelRef.current = true   // stop any in-flight processing before resetting
+    runIdRef.current++  // invalidate any in-flight run
     setStep(STEP.UPLOAD)
     setImageFile(null)
     setImagePreview(null)
@@ -212,7 +213,7 @@ export default function App() {
             isProcessing={isProcessing}
             error={error}
             onStartOver={handleStartOver}
-            onBack={() => { cancelRef.current = true; setStep(STEP.LANGUAGE) }}
+            onBack={() => { runIdRef.current++; setStep(STEP.LANGUAGE) }}
           />
         )}
       </div>
