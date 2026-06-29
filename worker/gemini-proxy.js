@@ -112,10 +112,28 @@ function pcmToWav(pcmBase64) {
 // ─── Prompts ──────────────────────────────────────────────────────────────
 
 function processPrompt(langName) {
-  return `Process this document image/PDF in two steps:
-STEP 1 — Extract ALL text exactly as written (all pages).
-STEP 2 — Translate into ${langName}.
-Rules: preserve names, dates, codes, reference numbers. Natural fluent ${langName}. Return ONLY the translated text.`
+  return `You are an expert document reader. Process this document image/PDF:
+
+STEP 1 — Identify the document type:
+  • Identity (passport, ID card, residence permit, visa)
+  • Administrative (contract, letter, official notice)
+  • Financial (invoice, receipt, bank statement, payslip)
+  • Medical (prescription, report, certificate)
+
+STEP 2 — Extract ALL text based on the document type:
+  • Identity: full name, nationality, date of birth, document number, issue/expiry dates, issuing authority, MRZ lines
+  • Administrative: all parties, dates, reference numbers, full body text
+  • Financial: vendor, all line items with prices, totals, VAT, dates, account numbers
+  • Medical: patient, doctor, dates, diagnosis, prescriptions, dosages
+  • Any type: NEVER skip a field — extract everything visible
+
+STEP 3 — Translate extracted text into ${langName}.
+  • Natural fluent ${langName} — not literal word-for-word
+  • Names, codes, IBANs, SIRETs, reference numbers stay exactly as written
+  • Keep field label + value on the same line
+  • Preserve blank lines between sections
+
+Return ONLY the final translated text. No step labels or document type header.`
 }
 
 const CHECK_PROMPT = `Assess this image for document OCR. Reply ONLY valid JSON:

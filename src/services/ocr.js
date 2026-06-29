@@ -10,6 +10,94 @@ import { extractTextWithGemini, isGeminiAvailable } from './gemini-ocr'
 //
 // This consistently improves Tesseract accuracy by 20-50% on real phone photos.
 
+// ── Otsu's threshold — finds the optimal foreground/background split ──────
+// Much better than simple auto-levels for separating text from background.
+function otsuThreshold(gray) {
+  const hist = new Array(256).fill(0)
+  for (const v of gray) hist[v]++
+  const total = gray.length
+  let sum = 0
+  for (let i = 0; i < 256; i++) sum += i * hist[i]
+  let sumB = 0, wB = 0, max = 0, threshold = 128
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t]; if (!wB) continue
+    const wF = total - wB; if (!wF) break
+    sumB += t * hist[t]
+    const between = wB * wF * ((sumB / wB) - ((sum - sumB) / wF)) ** 2
+    if (between > max) { max = between; threshold = t }
+  }
+  return threshold
+}
+
+// ── Deskew — detect and correct small rotation angles (±10°) ─────────────
+// Uses projection profile method: the angle that produces the most "peaky"
+// row-sum histogram is the correct orientation for horizontal text.
+function deskewAngle(gray, w, h) {
+  // Work on a small sample for speed (max 300px)
+  const SW = Math.min(w, 300), SH = Math.min(h, 300)
+  const sx = w / SW, sy = h / SH
+  const t  = otsuThreshold(gray)
+
+  let bestAngle = 0, bestScore = -1
+
+  for (let a = -10; a <= 10; a += 1) {
+    const rad = (a * Math.PI) / 180
+    const cos = Math.cos(rad), sin = Math.sin(rad)
+    const cx = SW / 2, cy = SH / 2
+    const proj = new Array(SH).fill(0)
+
+    for (let y = 0; y < SH; y++) {
+      for (let x = 0; x < SW; x++) {
+        const rx = Math.round((x - cx) * cos - (y - cy) * sin + cx)
+        const ry = Math.round((x - cx) * sin + (y - cy) * cos + cy)
+        if (rx >= 0 && rx < SW && ry >= 0 && ry < SH) {
+          const src = gray[Math.floor(ry * sy) * w + Math.floor(rx * sx)]
+          proj[y] += src < t ? 1 : 0
+        }
+      }
+    }
+    const mean = proj.reduce((a, b) => a + b, 0) / SH
+    const variance = proj.reduce((s, v) => s + (v - mean) ** 2, 0) / SH
+    if (variance > bestScore) { bestScore = variance; bestAngle = a }
+  }
+
+  return Math.abs(bestAngle) >= 2 ? bestAngle : 0  // skip tiny corrections
+}
+
+// ── Auto-crop — remove empty margins around the document ──────────────────
+// Finds the bounding box of dark pixels (text) and crops with 2% padding.
+function autoCropBounds(gray, w, h) {
+  const t    = otsuThreshold(gray)
+  const PAD  = 0.02  // 2% padding
+
+  let top = h, bottom = 0, left = w, right = 0
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (gray[y * w + x] < t) {
+        if (y < top)    top    = y
+        if (y > bottom) bottom = y
+        if (x < left)   left   = x
+        if (x > right)  right  = x
+      }
+    }
+  }
+
+  if (top >= bottom || left >= right) return null  // no text found
+
+  // Add padding
+  top    = Math.max(0,     Math.floor(top    - h * PAD))
+  bottom = Math.min(h - 1, Math.ceil(bottom  + h * PAD))
+  left   = Math.max(0,     Math.floor(left   - w * PAD))
+  right  = Math.min(w - 1, Math.ceil(right   + w * PAD))
+
+  // Only crop if removing > 5% from any side
+  const cropW = right - left, cropH = bottom - top
+  if (cropW > w * 0.9 && cropH > h * 0.9) return null  // nothing to crop
+
+  return { top, bottom, left, right, cropW, cropH }
+}
+
 export async function preprocessImageForOCR(imageBlob) {
   return new Promise((resolve) => {
     const img = new Image()
@@ -18,71 +106,101 @@ export async function preprocessImageForOCR(imageBlob) {
     img.onload = () => {
       URL.revokeObjectURL(url)
 
-      // Scale down if too large — Tesseract peaks around 300 DPI equivalent.
-      // Very large images slow OCR without improving quality.
+      // ── Step 0: Smart scaling ───────────────────────────────────────────
+      // Upscale if too small (improves OCR on low-res photos).
+      // Downscale if too large (Tesseract peaks at ~300 DPI equivalent).
+      const MIN_SIDE = 1200
       const MAX_SIDE = 2400
       let { naturalWidth: w, naturalHeight: h } = img
-      const scale = w > MAX_SIDE || h > MAX_SIDE
-        ? Math.min(MAX_SIDE / w, MAX_SIDE / h)
-        : 1
+      const maxDim = Math.max(w, h)
+      const minDim = Math.min(w, h)
+      let scale = 1
+      if (maxDim > MAX_SIDE) scale = MAX_SIDE / maxDim
+      else if (minDim < MIN_SIDE) scale = MIN_SIDE / minDim
       w = Math.round(w * scale)
       h = Math.round(h * scale)
 
       const canvas = document.createElement('canvas')
-      canvas.width  = w
-      canvas.height = h
+      canvas.width = w; canvas.height = h
       const ctx = canvas.getContext('2d')
+      // Use high-quality interpolation for upscaling
+      ctx.imageSmoothingEnabled = true
+      ctx.imageSmoothingQuality = 'high'
       ctx.drawImage(img, 0, 0, w, h)
 
       const imageData = ctx.getImageData(0, 0, w, h)
       const d = imageData.data
-      const len = d.length
 
-      // Step 1: Grayscale (luminance-weighted)
-      const gray = new Uint8ClampedArray(len / 4)
-      for (let i = 0, j = 0; i < len; i += 4, j++) {
+      // ── Step 1: Grayscale ───────────────────────────────────────────────
+      const gray = new Uint8ClampedArray(w * h)
+      for (let i = 0, j = 0; i < d.length; i += 4, j++) {
         gray[j] = Math.round(0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2])
       }
 
-      // Step 2: Auto-levels (stretch histogram to [0, 255])
-      let lo = 255, hi = 0
-      for (let i = 0; i < gray.length; i++) {
-        if (gray[i] < lo) lo = gray[i]
-        if (gray[i] > hi) hi = gray[i]
-      }
-      const range = hi - lo || 1
-      const stretched = new Uint8ClampedArray(gray.length)
-      for (let i = 0; i < gray.length; i++) {
-        stretched[i] = Math.round(((gray[i] - lo) / range) * 255)
+      // ── Step 2: Deskew (detect and correct document tilt) ───────────────
+      const angle = deskewAngle(gray, w, h)
+      if (angle !== 0) {
+        const rad = (-angle * Math.PI) / 180
+        const cos = Math.cos(rad), sin = Math.sin(rad)
+        const cx = w / 2, cy = h / 2
+        const corrected = new Uint8ClampedArray(w * h).fill(255)
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const sx = Math.round((x - cx) * cos - (y - cy) * sin + cx)
+            const sy = Math.round((x - cx) * sin + (y - cy) * cos + cy)
+            if (sx >= 0 && sx < w && sy >= 0 && sy < h) {
+              corrected[y * w + x] = gray[sy * w + sx]
+            }
+          }
+        }
+        gray.set(corrected)
       }
 
-      // Step 3: 3×3 unsharp-mask (sharpen edges)
-      const sharp = new Uint8ClampedArray(stretched)
-      const kernel = [
-         0, -1,  0,
-        -1,  5, -1,
-         0, -1,  0,
-      ]
+      // ── Step 3: Otsu contrast enhancement ───────────────────────────────
+      // Better than simple auto-levels: finds optimal threshold, then stretches
+      // foreground and background independently for maximum contrast.
+      const t = otsuThreshold(gray)
+      const enhanced = new Uint8ClampedArray(gray.length)
+      for (let i = 0; i < gray.length; i++) {
+        // Dark pixels (text) → pulled toward black; light pixels → toward white
+        enhanced[i] = gray[i] < t
+          ? Math.round((gray[i] / t) * 80)           // darken text (0-80)
+          : Math.round(180 + ((gray[i] - t) / (255 - t)) * 75)  // lighten bg (180-255)
+      }
+
+      // ── Step 4: 3×3 unsharp mask (sharpen edges) ────────────────────────
+      const sharp = new Uint8ClampedArray(enhanced)
+      const K = [0,-1,0,-1,5,-1,0,-1,0]
       for (let y = 1; y < h - 1; y++) {
         for (let x = 1; x < w - 1; x++) {
           let v = 0
-          for (let ky = -1; ky <= 1; ky++) {
-            for (let kx = -1; kx <= 1; kx++) {
-              v += stretched[(y + ky) * w + (x + kx)] * kernel[(ky+1)*3 + (kx+1)]
-            }
-          }
-          sharp[y * w + x] = Math.max(0, Math.min(255, v))
+          for (let ky = -1; ky <= 1; ky++)
+            for (let kx = -1; kx <= 1; kx++)
+              v += enhanced[(y+ky)*w+(x+kx)] * K[(ky+1)*3+(kx+1)]
+          sharp[y*w+x] = Math.max(0, Math.min(255, v))
         }
       }
 
+      // ── Step 5: Auto-crop to document bounds ────────────────────────────
+      const crop = autoCropBounds(sharp, w, h)
+
       // Write back as RGBA
-      for (let i = 0, j = 0; i < len; i += 4, j++) {
-        d[i] = d[i+1] = d[i+2] = sharp[j]
-        d[i+3] = 255
+      for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+        d[i] = d[i+1] = d[i+2] = sharp[j]; d[i+3] = 255
       }
       ctx.putImageData(imageData, 0, 0)
 
-      canvas.toBlob(blob => resolve(blob || imageBlob), 'image/jpeg', 0.95)
+      if (crop) {
+        // Draw cropped region onto a new canvas
+        const cropped = document.createElement('canvas')
+        cropped.width = crop.cropW; cropped.height = crop.cropH
+        cropped.getContext('2d').drawImage(canvas,
+          crop.left, crop.top, crop.cropW, crop.cropH,
+          0, 0, crop.cropW, crop.cropH)
+        cropped.toBlob(blob => resolve(blob || imageBlob), 'image/jpeg', 0.95)
+      } else {
+        canvas.toBlob(blob => resolve(blob || imageBlob), 'image/jpeg', 0.95)
+      }
     }
 
     img.onerror = () => { URL.revokeObjectURL(url); resolve(imageBlob) }
