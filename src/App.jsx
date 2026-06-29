@@ -154,7 +154,8 @@ export default function App() {
         // Give a clear offline message when the network is the cause
         const isNetworkError = err instanceof TypeError &&
           (err.message.includes('fetch') || err.message.includes('network') ||
-           err.message.includes('Failed') || err.message.includes('NetworkError'))
+           err.message.includes('Failed') || err.message.includes('NetworkError') ||
+           err.message.includes('Load failed'))  // Safari offline message
         const isOffline = !navigator.onLine
         const msg = (isOffline || isNetworkError)
           ? 'Pas de connexion internet. Vérifiez votre réseau et réessayez.'

@@ -283,7 +283,7 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
                   d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               <input
-                type="search"
+                type="text"
                 inputMode="search"
                 autoComplete="off"
                 autoCorrect="off"
@@ -292,8 +292,20 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
                 placeholder={t.search}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+                onInput={(e)  => setSearch(e.target.value)}
+                className="w-full pl-10 pr-10 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
               />
+              {search.length > 0 && (
+                <button
+                  onClick={() => setSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full bg-gray-300 hover:bg-gray-400 transition-colors"
+                  aria-label="Effacer"
+                >
+                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12"/>
+                  </svg>
+                </button>
+              )}
             </div>
 
             <p className="text-xs text-gray-400 mb-3 text-center">Appui long sur une langue pour l'ajouter aux favoris ⭐</p>

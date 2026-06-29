@@ -61,6 +61,12 @@ input:focus-visible  { outline: 2px solid var(--color-brand); outline-offset: 1p
 .lang-grid::-webkit-scrollbar-track { background: #F4F6FF; }
 .lang-grid::-webkit-scrollbar-thumb { background: #C2D0FF; border-radius: 2px; }
 
+/* Momentum / inertial scrolling on iOS Safari < 13.
+   Modern iOS ignores this (already enabled by default) but it costs nothing. */
+.overflow-auto, .overflow-y-auto, .overflow-scroll, .overflow-y-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
 /* ══════════════════════════════════════════════════════
    SPLASH SCREEN ANIMATIONS
 ══════════════════════════════════════════════════════ */

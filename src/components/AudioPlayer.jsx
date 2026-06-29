@@ -1,34 +1,19 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { speak, stopSpeech, pauseSpeech, resumeSpeech, splitIntoChunks } from '../services/tts'
+import { TARGET_LANGUAGES } from '../data/languages'
 
 const SPEEDS = [0.6, 0.8, 1.0, 1.2, 1.5]
 
+// Build LANG_DISPLAY from TARGET_LANGUAGES — single source of truth.
+// Keyed by base ISO code (e.g. 'zh' covers zh-CN and zh-TW).
+const LANG_DISPLAY = Object.fromEntries(
+  TARGET_LANGUAGES.flatMap(l => {
+    const base = l.code.split('-')[0]
+    return [[base, [l.flag, l.nameFr]], [l.code, [l.flag, l.nameFr]]]
+  })
+)
+
 // Maps Google-returned ISO codes to flag + short name
-const LANG_DISPLAY = {
-  af:['🇿🇦','Afrikaans'], sq:['🇦🇱','Albanais'], am:['🇪🇹','Amharique'],
-  ar:['🇸🇦','Arabe'], hy:['🇦🇲','Arménien'], az:['🇦🇿','Azerbaïdjanais'],
-  bn:['🇧🇩','Bengali'], bs:['🇧🇦','Bosniaque'], bg:['🇧🇬','Bulgare'],
-  ca:['🏴','Catalan'], zh:['🇨🇳','Chinois'], hr:['🇭🇷','Croate'],
-  cs:['🇨🇿','Tchèque'], da:['🇩🇰','Danois'], nl:['🇳🇱','Néerlandais'],
-  en:['🇬🇧','Anglais'], et:['🇪🇪','Estonien'], fi:['🇫🇮','Finnois'],
-  fr:['🇫🇷','Français'], ka:['🇬🇪','Géorgien'], de:['🇩🇪','Allemand'],
-  el:['🇬🇷','Grec'], gu:['🇮🇳','Gujarati'], ht:['🇭🇹','Créole'],
-  he:['🇮🇱','Hébreu'], hi:['🇮🇳','Hindi'], hu:['🇭🇺','Hongrois'],
-  id:['🇮🇩','Indonésien'], ga:['🇮🇪','Irlandais'], it:['🇮🇹','Italien'],
-  ja:['🇯🇵','Japonais'], kn:['🇮🇳','Kannada'], ko:['🇰🇷','Coréen'],
-  lv:['🇱🇻','Letton'], lt:['🇱🇹','Lituanien'], mk:['🇲🇰','Macédonien'],
-  ms:['🇲🇾','Malais'], ml:['🇮🇳','Malayalam'], mt:['🇲🇹','Maltais'],
-  mr:['🇮🇳','Marathi'], my:['🇲🇲','Birman'], ne:['🇳🇵','Népalais'],
-  no:['🇳🇴','Norvégien'], fa:['🇮🇷','Persan'], pl:['🇵🇱','Polonais'],
-  pt:['🇵🇹','Portugais'], pa:['🇮🇳','Pendjabi'], ro:['🇷🇴','Roumain'],
-  ru:['🇷🇺','Russe'], sr:['🇷🇸','Serbe'], si:['🇱🇰','Cingalais'],
-  sk:['🇸🇰','Slovaque'], sl:['🇸🇮','Slovène'], so:['🇸🇴','Somali'],
-  es:['🇪🇸','Espagnol'], sw:['🇰🇪','Swahili'], sv:['🇸🇪','Suédois'],
-  tl:['🇵🇭','Filipino'], ta:['🇮🇳','Tamoul'], te:['🇮🇳','Télougou'],
-  th:['🇹🇭','Thaï'], tr:['🇹🇷','Turc'], uk:['🇺🇦','Ukrainien'],
-  ur:['🇵🇰','Ourdou'], uz:['🇺🇿','Ouzbek'], vi:['🇻🇳','Vietnamien'],
-  cy:['🏴󠁧󠁢󠁷󠁬󠁳󠁿','Gallois'], yo:['🇳🇬','Yoruba'], zu:['🇿🇦','Zoulou'],
-}
 
 export default function AudioPlayer({
   imagePreview,
