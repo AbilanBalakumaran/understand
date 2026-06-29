@@ -95,25 +95,33 @@ export async function preprocessImageForOCR(imageBlob) {
 // content to pick the right Tesseract model for a second, higher-quality pass.
 
 const SCRIPT_RANGES = {
-  ara: /[؀-ۿ؀-ۿ]/g,
-  rus: /[Ѐ-ӿ]/g,
-  chi_sim: /[一-鿿一-鿿]/g,
-  jpn: /[぀-ヿ぀-ヿ]/g,
-  kor: /[가-힣가-힯]/g,
-  hin: /[ऀ-ॿऀ-ॿ]/g,
-  tam: /[஀-௿஀-௿]/g,
-  tha: /[฀-๿฀-๿]/g,
-  heb: /[א-תא-ת]/g,
-  ell: /[Ͱ-ϿͰ-Ͽ]/g,
-  kat: /[Ⴀ-ჿႠ-ჿ]/g,
+  ara:     /[؀-ۿ]/g,
+  rus:     /[Ѐ-ӿ]/g,
+  chi_sim: /[一-鿿]/g,
+  jpn:     /[぀-ヿ]/g,
+  kor:     /[가-힣]/g,
+  hin:     /[ऀ-ॿ]/g,
+  tam:     /[஀-௿]/g,
+  tha:     /[฀-๿]/g,
+  heb:     /[א-ת]/g,
+  ell:     /[Ͱ-Ͽ]/g,
+  kat:     /[Ⴀ-ჿ]/g,
+  tel:     /[ఀ-౿]/g,
+  kan:     /[ಀ-೿]/g,
+  mal:     /[ഀ-ൿ]/g,
 }
 
-// Combined models: pair non-Latin script with fra so numbers/dates are preserved
+// Combined models: pair non-Latin script with fra so numbers/dates are preserved.
+// Every non-Latin language gets +fra so Latin digits, dates, and references inside
+// the document are captured alongside the native script characters.
 const COMBINED_MODELS = {
   ara: 'ara+fra', rus: 'rus+fra', chi_sim: 'chi_sim+fra',
   jpn: 'jpn+fra', kor: 'kor+fra', hin: 'hin+fra',
   tam: 'tam+fra', tha: 'tha+fra', heb: 'heb+fra',
-  ell: 'ell+fra', kat: 'kat+fra',
+  ell: 'ell+fra', kat: 'kat+fra', tel: 'tel+fra',
+  kan: 'kan+fra', mal: 'mal+fra', arm: 'arm+fra',
+  amh: 'amh+fra', khm: 'khm+fra', sin: 'sin+fra',
+  mya: 'mya+fra',
 }
 
 function detectScriptFromText(text) {
