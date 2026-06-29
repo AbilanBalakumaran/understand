@@ -1,10 +1,9 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { TARGET_LANGUAGES } from '../data/languages'
 import { useAppLang } from '../context/AppLang'
 
 const STORAGE_KEY  = 'understand_lastTargetLang'
 const RECENT_KEY   = 'understand_recentTargets'
-const FAV_KEY      = 'understand_favTargets'
 const MAX_RECENT   = 5
 
 function loadLastTarget() {
@@ -33,7 +32,6 @@ const UI = {
   fr: {
     title:       'Choisissez votre langue',
     step:        'Étape 2 / 3',
-    favorites:   'Favoris',
     recent:      'Récentes',
     yourLang:    "Votre langue — l'audio sera dans cette langue",
     saved:       'Mémorisée',
@@ -45,7 +43,6 @@ const UI = {
   en: {
     title:       'Choose your language',
     step:        'Step 2 / 3',
-    favorites:   'Favorites',
     recent:      'Recent',
     yourLang:    'Your language — audio will be in this language',
     saved:       'Saved',
@@ -56,34 +53,10 @@ const UI = {
   },
 }
 
-// Long-press hook: calls onLongPress after `ms` ms of continuous press
-function useLongPress(onLongPress, ms = 500) {
-  const timer = useRef(null)
-  const fired  = useRef(false)
 
-  const start = useCallback((e) => {
-    e.preventDefault()
-    fired.current = false
-    timer.current = setTimeout(() => {
-      fired.current = true
-      onLongPress()
-    }, ms)
-  }, [onLongPress, ms])
-
-  const cancel = useCallback(() => {
-    if (timer.current) clearTimeout(timer.current)
-  }, [])
-
-  return { onMouseDown: start, onTouchStart: start, onMouseUp: cancel, onMouseLeave: cancel, onTouchEnd: cancel }
-}
-
-// Individual language card — supports tap (select) and long press (favorite)
-function LangCard({ lang, isSelected, isFavorite, onSelect, onToggleFav, label }) {
-  const longPress = useLongPress(onToggleFav)
-
+function LangCard({ lang, isSelected, onSelect, label }) {
   return (
     <button
-      {...longPress}
       onClick={onSelect}
       className={`
         flex flex-col items-center gap-1 rounded-2xl p-3 transition-all relative select-none
@@ -93,9 +66,6 @@ function LangCard({ lang, isSelected, isFavorite, onSelect, onToggleFav, label }
         }
       `}
     >
-      {isFavorite && (
-        <span className="absolute top-1.5 right-1.5 text-[10px] leading-none">⭐</span>
-      )}
       <span className="text-2xl leading-none">{lang.flag}</span>
       <span className={`text-xs font-medium text-center leading-tight line-clamp-2 ${isSelected ? 'text-white' : 'text-gray-600'}`}>
         {label}
@@ -116,7 +86,6 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
   const [search, setSearch]                 = useState('')
   const [selectedTarget, setSelectedTarget] = useState(() => loadLastTarget())
   const [recentTargets, setRecentTargets]   = useState(() => loadList(RECENT_KEY))
-  const [favorites, setFavorites]           = useState(() => loadList(FAV_KEY))
 
   // Image zoom modal
   const [modalOpen, setModalOpen] = useState(false)
@@ -153,25 +122,12 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
     })
   }
 
-  const handleToggleFav = (lang) => {
-    setFavorites((prev) => {
-      const exists = prev.some((l) => l.code === lang.code)
-      const updated = exists
-        ? prev.filter((l) => l.code !== lang.code)
-        : [lang, ...prev]
-      saveList(FAV_KEY, updated)
-      return updated
-    })
-  }
-
   const handleConfirm = () => {
     if (!selectedTarget) return
     onConfirm({ targetLang: selectedTarget })
   }
 
-  const favSet    = new Set(favorites.map((l) => l.code))
-  const showFavs  = !search && favorites.length > 0
-  const showRecent = !search && recentTargets.filter(l => !favSet.has(l.code)).length > 0
+  const showRecent = !search && recentTargets.length > 0
 
   return (
     <>
@@ -213,42 +169,19 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
         <div className="px-4 pt-4 pb-36">
 
 
-          {/* ── Favorites ── */}
-          {showFavs && (
-            <div className="mb-5">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2.5">
-                ⭐ {t.favorites}
-              </p>
-              <div className="grid grid-cols-3 gap-2">
-                {favorites.map((lang) => (
-                  <LangCard
-                    key={lang.code}
-                    lang={lang}
-                    isSelected={selectedTarget?.code === lang.code}
-                    isFavorite={true}
-                    onSelect={() => handleSelectTarget(lang)}
-                    onToggleFav={() => handleToggleFav(lang)}
-                    label={langName(lang)}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Recent (non-favorite) ── */}
+          {/* ── Recent ── */}
           {showRecent && (
             <div className="mb-5">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2.5">
                 {t.recent}
               </p>
               <div className="flex gap-2 flex-wrap">
-                {recentTargets.filter(l => !favSet.has(l.code)).map((lang) => {
+                {recentTargets.map((lang) => {
                   const isSelected = selectedTarget?.code === lang.code
                   return (
                     <button
                       key={lang.code}
                       onClick={() => handleSelectTarget(lang)}
-                      onContextMenu={(e) => { e.preventDefault(); handleToggleFav(lang) }}
                       className={`flex items-center gap-2 px-3 py-2 rounded-2xl border transition-all text-sm font-semibold ${
                         isSelected
                           ? 'bg-primary-600 text-white border-primary-600 shadow-blue'
@@ -309,17 +242,13 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
               )}
             </div>
 
-            <p className="text-xs text-gray-400 mb-3 text-center">Appui long sur une langue pour l'ajouter aux favoris ⭐</p>
-
             <div className="grid grid-cols-3 gap-2">
               {filteredLanguages.map((lang) => (
                 <LangCard
                   key={lang.code}
                   lang={lang}
                   isSelected={selectedTarget?.code === lang.code}
-                  isFavorite={favSet.has(lang.code)}
                   onSelect={() => handleSelectTarget(lang)}
-                  onToggleFav={() => handleToggleFav(lang)}
                   label={langName(lang)}
                 />
               ))}
