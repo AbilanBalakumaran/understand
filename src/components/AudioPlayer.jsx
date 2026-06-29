@@ -1,43 +1,33 @@
-import { useState, useEffect, useRef, useMemo, useCallback, Fragment } from 'react'
-import {
-  speak, stopSpeech, pauseSpeech, resumeSpeech,
-  splitIntoChunks, generateAudio,
-} from '../services/tts'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { speak, stopSpeech, pauseSpeech, resumeSpeech, splitIntoChunks } from '../services/tts'
 
 const SPEEDS = [0.6, 0.8, 1.0, 1.2, 1.5]
 
-function formatTime(secs) {
-  if (!isFinite(secs) || isNaN(secs) || secs < 0) return '0:00'
-  const m = Math.floor(secs / 60)
-  const s = Math.floor(secs % 60)
-  return `${m}:${s.toString().padStart(2, '0')}`
-}
-
-// Maps Google-returned ISO codes to a flag + short name for display
+// Maps Google-returned ISO codes to flag + short name
 const LANG_DISPLAY = {
-  af: ['🇿🇦', 'Afrikaans'], sq: ['🇦🇱', 'Albanais'], am: ['🇪🇹', 'Amharique'],
-  ar: ['🇸🇦', 'Arabe'], hy: ['🇦🇲', 'Arménien'], az: ['🇦🇿', 'Azerbaïdjanais'],
-  bn: ['🇧🇩', 'Bengali'], bs: ['🇧🇦', 'Bosniaque'], bg: ['🇧🇬', 'Bulgare'],
-  ca: ['🏴', 'Catalan'], zh: ['🇨🇳', 'Chinois'], hr: ['🇭🇷', 'Croate'],
-  cs: ['🇨🇿', 'Tchèque'], da: ['🇩🇰', 'Danois'], nl: ['🇳🇱', 'Néerlandais'],
-  en: ['🇬🇧', 'Anglais'], et: ['🇪🇪', 'Estonien'], fi: ['🇫🇮', 'Finnois'],
-  fr: ['🇫🇷', 'Français'], ka: ['🇬🇪', 'Géorgien'], de: ['🇩🇪', 'Allemand'],
-  el: ['🇬🇷', 'Grec'], gu: ['🇮🇳', 'Gujarati'], ht: ['🇭🇹', 'Créole'],
-  he: ['🇮🇱', 'Hébreu'], hi: ['🇮🇳', 'Hindi'], hu: ['🇭🇺', 'Hongrois'],
-  id: ['🇮🇩', 'Indonésien'], ga: ['🇮🇪', 'Irlandais'], it: ['🇮🇹', 'Italien'],
-  ja: ['🇯🇵', 'Japonais'], kn: ['🇮🇳', 'Kannada'], ko: ['🇰🇷', 'Coréen'],
-  lv: ['🇱🇻', 'Letton'], lt: ['🇱🇹', 'Lituanien'], mk: ['🇲🇰', 'Macédonien'],
-  ms: ['🇲🇾', 'Malais'], ml: ['🇮🇳', 'Malayalam'], mt: ['🇲🇹', 'Maltais'],
-  mr: ['🇮🇳', 'Marathi'], my: ['🇲🇲', 'Birman'], ne: ['🇳🇵', 'Népalais'],
-  no: ['🇳🇴', 'Norvégien'], fa: ['🇮🇷', 'Persan'], pl: ['🇵🇱', 'Polonais'],
-  pt: ['🇵🇹', 'Portugais'], pa: ['🇮🇳', 'Pendjabi'], ro: ['🇷🇴', 'Roumain'],
-  ru: ['🇷🇺', 'Russe'], sr: ['🇷🇸', 'Serbe'], si: ['🇱🇰', 'Cingalais'],
-  sk: ['🇸🇰', 'Slovaque'], sl: ['🇸🇮', 'Slovène'], so: ['🇸🇴', 'Somali'],
-  es: ['🇪🇸', 'Espagnol'], sw: ['🇰🇪', 'Swahili'], sv: ['🇸🇪', 'Suédois'],
-  tl: ['🇵🇭', 'Filipino'], ta: ['🇮🇳', 'Tamoul'], te: ['🇮🇳', 'Télougou'],
-  th: ['🇹🇭', 'Thaï'], tr: ['🇹🇷', 'Turc'], uk: ['🇺🇦', 'Ukrainien'],
-  ur: ['🇵🇰', 'Ourdou'], uz: ['🇺🇿', 'Ouzbek'], vi: ['🇻🇳', 'Vietnamien'],
-  cy: ['🏴󠁧󠁢󠁷󠁬󠁳󠁿', 'Gallois'], yo: ['🇳🇬', 'Yoruba'], zu: ['🇿🇦', 'Zoulou'],
+  af:['🇿🇦','Afrikaans'], sq:['🇦🇱','Albanais'], am:['🇪🇹','Amharique'],
+  ar:['🇸🇦','Arabe'], hy:['🇦🇲','Arménien'], az:['🇦🇿','Azerbaïdjanais'],
+  bn:['🇧🇩','Bengali'], bs:['🇧🇦','Bosniaque'], bg:['🇧🇬','Bulgare'],
+  ca:['🏴','Catalan'], zh:['🇨🇳','Chinois'], hr:['🇭🇷','Croate'],
+  cs:['🇨🇿','Tchèque'], da:['🇩🇰','Danois'], nl:['🇳🇱','Néerlandais'],
+  en:['🇬🇧','Anglais'], et:['🇪🇪','Estonien'], fi:['🇫🇮','Finnois'],
+  fr:['🇫🇷','Français'], ka:['🇬🇪','Géorgien'], de:['🇩🇪','Allemand'],
+  el:['🇬🇷','Grec'], gu:['🇮🇳','Gujarati'], ht:['🇭🇹','Créole'],
+  he:['🇮🇱','Hébreu'], hi:['🇮🇳','Hindi'], hu:['🇭🇺','Hongrois'],
+  id:['🇮🇩','Indonésien'], ga:['🇮🇪','Irlandais'], it:['🇮🇹','Italien'],
+  ja:['🇯🇵','Japonais'], kn:['🇮🇳','Kannada'], ko:['🇰🇷','Coréen'],
+  lv:['🇱🇻','Letton'], lt:['🇱🇹','Lituanien'], mk:['🇲🇰','Macédonien'],
+  ms:['🇲🇾','Malais'], ml:['🇮🇳','Malayalam'], mt:['🇲🇹','Maltais'],
+  mr:['🇮🇳','Marathi'], my:['🇲🇲','Birman'], ne:['🇳🇵','Népalais'],
+  no:['🇳🇴','Norvégien'], fa:['🇮🇷','Persan'], pl:['🇵🇱','Polonais'],
+  pt:['🇵🇹','Portugais'], pa:['🇮🇳','Pendjabi'], ro:['🇷🇴','Roumain'],
+  ru:['🇷🇺','Russe'], sr:['🇷🇸','Serbe'], si:['🇱🇰','Cingalais'],
+  sk:['🇸🇰','Slovaque'], sl:['🇸🇮','Slovène'], so:['🇸🇴','Somali'],
+  es:['🇪🇸','Espagnol'], sw:['🇰🇪','Swahili'], sv:['🇸🇪','Suédois'],
+  tl:['🇵🇭','Filipino'], ta:['🇮🇳','Tamoul'], te:['🇮🇳','Télougou'],
+  th:['🇹🇭','Thaï'], tr:['🇹🇷','Turc'], uk:['🇺🇦','Ukrainien'],
+  ur:['🇵🇰','Ourdou'], uz:['🇺🇿','Ouzbek'], vi:['🇻🇳','Vietnamien'],
+  cy:['🏴󠁧󠁢󠁷󠁬󠁳󠁿','Gallois'], yo:['🇳🇬','Yoruba'], zu:['🇿🇦','Zoulou'],
 }
 
 export default function AudioPlayer({
@@ -52,243 +42,66 @@ export default function AudioPlayer({
   onStartOver,
   onBack,
 }) {
-  /* ── processing phase ── */
   const isReady   = !isProcessing && !error && translatedText
   const ocrDone   = ocrProgress >= 100
   const transDone = translateProgress >= 100
 
-  /* ── audio-generation phase ── */
-  // 'idle' | 'loading' | 'ready' | 'streaming'
-  const [audioPhase,    setAudioPhase]    = useState('idle')
-  const [loadProgress,  setLoadProgress]  = useState(0)
-  const [ttsError,      setTtsError]      = useState(null)
-  const [speedIndex,    setSpeedIndex]    = useState(2)
-  const [copied,        setCopied]        = useState(false)
-  const [imgModalOpen,  setImgModalOpen]  = useState(false)
-  const [imgZoom,       setImgZoom]       = useState(1)
+  const [playing,    setPlaying]    = useState(false)
+  const [paused,     setPaused]     = useState(false)
+  const [activeChunk, setActiveChunk] = useState(-1)
+  const [ttsError,   setTtsError]   = useState(null)
+  const [speedIndex, setSpeedIndex] = useState(2)
+  const [copied,     setCopied]     = useState(false)
+  const [imgModalOpen, setImgModalOpen] = useState(false)
+  const [imgZoom,    setImgZoom]    = useState(1)
 
-  /* ── ready-mode state ── */
-  const [audioDuration,    setAudioDuration]    = useState(0)
-  const [audioCurrentTime, setAudioCurrentTime] = useState(0)
-  const [isPlayingReady,   setIsPlayingReady]   = useState(false)
-
-  /* ── streaming-mode state ── */
-  const [streamPlaying, setStreamPlaying] = useState(false)
-  const [streamPaused,  setStreamPaused]  = useState(false)
-  const [streamChunk,   setStreamChunk]   = useState(-1)
-
-  const audioRef    = useRef(null)
-  const audioUrlRef = useRef(null)   // ref so cleanup always gets the latest URL
-  const abortRef    = useRef(null)
-
-  /* ── text chunks ── */
   const chunks = useMemo(
     () => (translatedText ? splitIntoChunks(translatedText) : []),
-    [translatedText],
+    [translatedText]
   )
 
-  // Cumulative char offsets for time-based chunk highlighting in ready mode
-  const { chunkOffsets, totalChars } = useMemo(() => {
-    let offset = 0
-    const offsets = chunks.map((c) => {
-      const start = offset
-      offset += c.length + 1  // +1 for space
-      return start
-    })
-    return { chunkOffsets: offsets, totalChars: offset }
-  }, [chunks])
+  useEffect(() => () => stopSpeech(), [])
 
-  const readyChunkIdx = useMemo(() => {
-    if (audioPhase !== 'ready' || audioDuration === 0) return -1
-    const charPos = (audioCurrentTime / audioDuration) * totalChars
-    let idx = 0
-    for (let i = 0; i < chunkOffsets.length; i++) {
-      if (chunkOffsets[i] <= charPos) idx = i
-      else break
-    }
-    return idx
-  }, [audioPhase, audioCurrentTime, audioDuration, chunkOffsets, totalChars])
-
-  const activeChunk = audioPhase === 'ready' ? readyChunkIdx : streamChunk
-
-  /* ── cleanup on unmount ── */
-  useEffect(() => () => {
-    stopSpeech()
-    abortRef.current?.abort()
-    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current)
-    if (audioRef.current) audioRef.current.pause()
-  }, [])
-
-  /* ── audio element events — attached once at mount, always active ──
-     IMPORTANT: must NOT depend on audioPhase. If we conditionally attach
-     based on phase, audio.play() fires the 'play' event BEFORE the
-     useEffect re-runs (React flushes state → re-render → effect), so
-     isPlayingReady would never be set to true and pause would break. */
-  useEffect(() => {
-    const audio = audioRef.current
-    if (!audio) return
-
-    const onTimeUpdate     = () => setAudioCurrentTime(audio.currentTime)
-    const onDurationChange = () => setAudioDuration(isFinite(audio.duration) ? audio.duration : 0)
-    const onEnded          = () => setIsPlayingReady(false)
-    const onPlay           = () => setIsPlayingReady(true)
-    const onPause          = () => setIsPlayingReady(false)
-    const onError          = () => {
-      setTtsError('Erreur de lecture audio. Réessayez.')
-      setIsPlayingReady(false)
-    }
-
-    audio.addEventListener('timeupdate',     onTimeUpdate)
-    audio.addEventListener('durationchange', onDurationChange)
-    audio.addEventListener('ended',          onEnded)
-    audio.addEventListener('play',           onPlay)
-    audio.addEventListener('pause',          onPause)
-    audio.addEventListener('error',          onError)
-    return () => {
-      audio.removeEventListener('timeupdate',     onTimeUpdate)
-      audio.removeEventListener('durationchange', onDurationChange)
-      audio.removeEventListener('ended',          onEnded)
-      audio.removeEventListener('play',           onPlay)
-      audio.removeEventListener('pause',          onPause)
-      audio.removeEventListener('error',          onError)
-    }
-  }, []) // ← empty: attach once, never re-wire
-
-  /* ── start streaming fallback ── */
-  const startStreaming = useCallback(() => {
+  // ── Play ──────────────────────────────────────────────────────────────────
+  // Called synchronously from onClick — never async — so iOS Safari allows
+  // audio.play() on the very first chunk without blocking.
+  const handlePlay = useCallback(() => {
+    if (!isReady) return
+    setTtsError(null)
+    setPlaying(true)
+    setPaused(false)
+    setActiveChunk(0)
     speak(translatedText, targetLang.tts, {
       rate: SPEEDS[speedIndex],
-      onEnd:        () => { setStreamPlaying(false); setStreamPaused(false) },
-      onError:      (err) => { setStreamPlaying(false); setStreamPaused(false); setTtsError(err.message) },
-      onChunkStart: (idx) => setStreamChunk(idx),
+      onEnd:        () => { setPlaying(false); setPaused(false); setActiveChunk(-1) },
+      onError:      err => { setPlaying(false); setPaused(false); setTtsError(err.message) },
+      onChunkStart: idx => setActiveChunk(idx),
     })
-    setStreamPlaying(true)
-    setStreamPaused(false)
-    setStreamChunk(0)
-  }, [translatedText, targetLang, speedIndex])
-
-  /* ── main play button ── */
-  const handlePlayClick = useCallback(async () => {
-    if (!translatedText || !isReady) return
-    setTtsError(null)
-
-    // If already in ready mode: toggle play / pause
-    if (audioPhase === 'ready' && audioRef.current) {
-      if (isPlayingReady) {
-        audioRef.current.pause()
-      } else {
-        try { await audioRef.current.play() }
-        catch { setTtsError('Lecture bloquée. Réessayez.') }
-      }
-      return
-    }
-
-    // Start generating audio
-    const abort = new AbortController()
-    abortRef.current = abort
-    setAudioPhase('loading')
-    setLoadProgress(0)
-
-    const result = await generateAudio(translatedText, targetLang.tts, {
-      onProgress: (pct) => setLoadProgress(pct),
-      signal: abort.signal,
-    })
-
-    if (abort.signal.aborted) return
-
-    if (!result) {
-      // Lingva unavailable → stream chunk-by-chunk (existing approach)
-      setAudioPhase('streaming')
-      startStreaming()
-      return
-    }
-
-    // Build a single audio blob URL
-    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current)
-    const url = URL.createObjectURL(result.blob)
-    audioUrlRef.current = url
-    setAudioPhase('ready')
-    setAudioCurrentTime(0)
-
-    // Set src + auto-play
-    const audio = audioRef.current
-    if (audio) {
-      audio.src = url
-      audio.playbackRate = SPEEDS[speedIndex]
-      audio.load()
-      try {
-        await audio.play()
-        setIsPlayingReady(true) // belt-and-suspenders: don't rely solely on the 'play' event
-      } catch {
-        setTtsError('Lecture bloquée par le navigateur. Appuyez à nouveau sur Play.')
-      }
-    }
-  }, [translatedText, isReady, audioPhase, isPlayingReady, targetLang, speedIndex, startStreaming])
-
-  const handleCancelLoad = () => {
-    abortRef.current?.abort()
-    setAudioPhase('idle')
-    setLoadProgress(0)
-  }
+  }, [isReady, translatedText, targetLang, speedIndex])
 
   const handlePauseResume = () => {
-    if (audioPhase === 'ready' && audioRef.current) {
-      if (isPlayingReady) audioRef.current.pause()
-      else audioRef.current.play().catch(() => {})
-    } else if (audioPhase === 'streaming') {
-      if (streamPaused) { resumeSpeech(); setStreamPaused(false) }
-      else              { pauseSpeech();  setStreamPaused(true) }
-    }
+    if (paused) { resumeSpeech(); setPaused(false) }
+    else        { pauseSpeech();  setPaused(true)  }
   }
 
   const handleStop = useCallback(() => {
     stopSpeech()
-    abortRef.current?.abort()
-    setStreamPlaying(false)
-    setStreamPaused(false)
-    setStreamChunk(-1)
-    if (audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current.currentTime = 0
-    }
-    setIsPlayingReady(false)
-    setAudioCurrentTime(0)
+    setPlaying(false)
+    setPaused(false)
+    setActiveChunk(-1)
   }, [])
-
-  const handleSeek = (e) => {
-    const t = parseFloat(e.target.value)
-    if (audioRef.current) audioRef.current.currentTime = t
-    setAudioCurrentTime(t)
-  }
-
-  const handleSkip = (delta) => {
-    if (!audioRef.current) return
-    const next = Math.max(0, Math.min(audioDuration, audioCurrentTime + delta))
-    audioRef.current.currentTime = next
-  }
 
   const handleSpeedChange = () => {
     const next = (speedIndex + 1) % SPEEDS.length
     setSpeedIndex(next)
-    if (audioRef.current) audioRef.current.playbackRate = SPEEDS[next]
-    if (audioPhase === 'streaming') {
+    if (playing) {
       speak(translatedText, targetLang.tts, {
         rate: SPEEDS[next],
-        onEnd:        () => { setStreamPlaying(false); setStreamPaused(false) },
-        onError:      (err) => { setStreamPlaying(false); setStreamPaused(false); setTtsError(err.message) },
-        onChunkStart: (idx) => setStreamChunk(idx),
+        onEnd:        () => { setPlaying(false); setPaused(false); setActiveChunk(-1) },
+        onError:      err => { setPlaying(false); setPaused(false); setTtsError(err.message) },
+        onChunkStart: idx => setActiveChunk(idx),
       })
-      setStreamPlaying(true)
-      setStreamPaused(false)
     }
-  }
-
-  const handleDownload = () => {
-    if (!audioUrlRef.current) return
-    const a = document.createElement('a')
-    a.href = audioUrlRef.current
-    a.download = `understand-${targetLang.tts.split('-')[0]}.mp3`
-    a.click()
   }
 
   const handleCopy = () => {
@@ -302,20 +115,14 @@ export default function AudioPlayer({
   const handleBack = () => { handleStop(); onBack() }
   const handleStartOver = () => { handleStop(); onStartOver() }
 
-  /* streaming playing/paused state */
-  const streamActive = audioPhase === 'streaming'
-  const isActuallyPlaying = (audioPhase === 'ready' && isPlayingReady) ||
-                            (streamActive && streamPlaying && !streamPaused)
+  const isActuallyPlaying = playing && !paused
+  const dl = detectedLang?.split('-')[0]
 
-  /* ── render ── */
   return (
     <>
     <div className="flex flex-col min-h-screen bg-white">
 
-      {/* Hidden native audio element — src set dynamically */}
-      <audio ref={audioRef} preload="auto" />
-
-      {/* ── Sticky blue header ── */}
+      {/* ── Header ── */}
       <div
         className="flex items-center gap-3 px-4 sticky top-0 z-20"
         style={{
@@ -335,10 +142,7 @@ export default function AudioPlayer({
         </button>
         <div className="flex-1 min-w-0">
           <h2 className="font-bold text-white text-lg leading-tight">
-            {isProcessing
-              ? 'Traitement…'
-              : error ? 'Une erreur est survenue'
-              : 'Audio prêt !'}
+            {isProcessing ? 'Traitement…' : error ? 'Erreur' : 'Audio prêt !'}
           </h2>
           <p className="text-white/60 text-xs">Étape 3 / 3 · {targetLang.flag} {targetLang.name}</p>
         </div>
@@ -346,7 +150,6 @@ export default function AudioPlayer({
           <button
             onClick={() => { setImgZoom(1); setImgModalOpen(true) }}
             className="rounded-xl border-2 border-white/30 overflow-hidden hover:opacity-80 active:opacity-60 transition-opacity"
-            aria-label="Agrandir le document"
           >
             <img src={imagePreview} alt="document" className="w-10 h-12 object-cover block" />
           </button>
@@ -355,10 +158,10 @@ export default function AudioPlayer({
 
       <div className="px-4 pb-32 pt-2">
 
-        {/* ── OCR + Translation progress ── */}
+        {/* ── Progress ── */}
         {isProcessing && (
           <div className="space-y-3 mt-2">
-            <ProgressItem label="Lecture du document"        icon={<ScanIcon />}      progress={ocrProgress}       done={ocrDone} />
+            <ProgressItem label="Lecture du document"                icon={<ScanIcon />}      progress={ocrProgress}             done={ocrDone} />
             <ProgressItem label={`Traduction en ${targetLang.name}`} icon={<TranslateIcon />} progress={ocrDone ? translateProgress : 0} done={transDone} disabled={!ocrDone} />
           </div>
         )}
@@ -372,232 +175,91 @@ export default function AudioPlayer({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
               </div>
-              <div>
-                <p className="font-bold text-red-700 mb-1">Erreur</p>
-                <p className="text-red-600 text-sm">{error}</p>
-              </div>
+              <div><p className="font-bold text-red-700 mb-1">Erreur</p><p className="text-red-600 text-sm">{error}</p></div>
             </div>
-            <button onClick={handleStartOver} className="mt-4 w-full bg-red-600 hover:bg-red-700 text-white rounded-xl py-3 font-bold text-sm transition-colors">
-              Réessayer
-            </button>
+            <button onClick={handleStartOver} className="mt-4 w-full bg-red-600 hover:bg-red-700 text-white rounded-xl py-3 font-bold text-sm">Réessayer</button>
           </div>
         )}
 
-        {/* ── Audio player (shown once processing done) ── */}
+        {/* ── Player ── */}
         {isReady && (
           <div className="mt-2 space-y-4">
 
-            {/* ── Player card ── */}
             <div className="bg-gradient-to-br from-primary-600 to-primary-800 rounded-3xl p-6 text-white shadow-blue">
 
-              {/* Detected source → target language */}
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2 min-w-0">
-                  {detectedLang && LANG_DISPLAY[detectedLang.split('-')[0]] ? (
-                    <div className="flex items-center gap-1.5 bg-white/15 rounded-xl px-2.5 py-1 text-sm font-semibold">
-                      <span>{LANG_DISPLAY[detectedLang.split('-')[0]][0]}</span>
-                      <span className="text-white/80 text-xs">{LANG_DISPLAY[detectedLang.split('-')[0]][1]}</span>
+              {/* Lang badge */}
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-1.5 bg-white/15 rounded-xl px-2.5 py-1 text-sm font-semibold min-w-0 max-w-[75%]">
+                  {dl && LANG_DISPLAY[dl] ? (
+                    <>
+                      <span>{LANG_DISPLAY[dl][0]}</span>
+                      <span className="text-white/80 text-xs truncate">{LANG_DISPLAY[dl][1]}</span>
                       <svg className="w-3 h-3 text-white/60 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7"/>
                       </svg>
-                      <span>{targetLang.flag}</span>
-                      <span className="text-xs text-white/80">{targetLang.name}</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="text-2xl">{targetLang.flag}</span>
-                      <span className="font-bold text-base">{targetLang.name}</span>
-                    </div>
-                  )}
+                    </>
+                  ) : null}
+                  <span>{targetLang.flag}</span>
+                  <span className="text-xs text-white/80 truncate">{targetLang.name}</span>
                 </div>
-                {/* Speed badge */}
                 <button
                   onClick={handleSpeedChange}
-                  className="px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors text-xs font-bold"
+                  className="px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 active:bg-white/40 text-xs font-bold"
                 >
                   {SPEEDS[speedIndex]}×
                 </button>
               </div>
 
-              {/* ── IDLE ── */}
-              {audioPhase === 'idle' && (
+              {/* Controls */}
+              {!playing ? (
+                /* ── IDLE / STOPPED ── */
                 <button
-                  onClick={handlePlayClick}
+                  onClick={handlePlay}
                   className="w-full flex items-center justify-center gap-3 bg-white text-primary-700 rounded-2xl py-4 font-bold text-base shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-transform"
                 >
-                  <svg className="w-6 h-6 fill-primary-700 ml-1" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z"/>
-                  </svg>
+                  <svg className="w-6 h-6 fill-primary-700 ml-1" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                   Écouter
                 </button>
-              )}
-
-              {/* ── LOADING ── */}
-              {audioPhase === 'loading' && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-white/80">Génération de l'audio…</span>
-                    <span className="font-bold">{loadProgress}%</span>
-                  </div>
-                  <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-white rounded-full transition-all duration-300"
-                      style={{ width: `${loadProgress}%` }}
-                    />
-                  </div>
+              ) : (
+                /* ── PLAYING / PAUSED ── */
+                <div className="flex items-center justify-center gap-4">
+                  {/* Replay */}
                   <button
-                    onClick={handleCancelLoad}
-                    className="w-full text-center text-white/60 text-sm py-1 hover:text-white transition-colors"
+                    onClick={() => { handleStop(); setTimeout(handlePlay, 50) }}
+                    className="w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
+                    aria-label="Rejouer"
                   >
-                    Annuler
+                    <svg className="w-5 h-5 fill-white" viewBox="0 0 24 24">
+                      <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+                    </svg>
                   </button>
-                </div>
-              )}
 
-              {/* ── READY (pre-generated blob) ── */}
-              {audioPhase === 'ready' && (
-                <div className="space-y-4">
-                  {/* Scrubber */}
-                  <div className="space-y-1">
-                    <input
-                      type="range"
-                      min={0}
-                      max={audioDuration || 1}
-                      value={audioCurrentTime}
-                      step={0.5}
-                      onChange={handleSeek}
-                      className="w-full h-1 rounded-full cursor-pointer appearance-none"
-                      style={{ accentColor: 'white' }}
-                    />
-                    <div className="flex justify-between text-xs text-white/60">
-                      <span>{formatTime(audioCurrentTime)}</span>
-                      <span>{formatTime(audioDuration)}</span>
-                    </div>
-                  </div>
+                  {/* Play / Pause */}
+                  <button
+                    onClick={handlePauseResume}
+                    className="w-16 h-16 rounded-full bg-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-transform relative"
+                  >
+                    {isActuallyPlaying ? (
+                      <svg className="w-7 h-7 fill-primary-700" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                    ) : (
+                      <svg className="w-7 h-7 fill-primary-700 ml-1" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    )}
+                    {isActuallyPlaying && <span className="absolute inset-0 rounded-full bg-white/30 pulse-ring" />}
+                  </button>
 
-                  {/* Controls */}
-                  <div className="flex items-center justify-between gap-2">
-                    {/* Skip -10s */}
-                    <button
-                      onClick={() => handleSkip(-10)}
-                      className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 active:bg-white/40 flex items-center justify-center transition-colors"
-                      aria-label="Reculer 10 secondes"
-                    >
-                      <svg className="w-5 h-5 fill-white" viewBox="0 0 24 24">
-                        <path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
-                        <text x="12" y="16" textAnchor="middle" fontSize="5" fill="white" fontWeight="bold">10</text>
-                      </svg>
-                    </button>
-
-                    {/* Play / Pause */}
-                    <button
-                      onClick={handlePauseResume}
-                      className="w-16 h-16 rounded-full bg-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-transform relative"
-                      aria-label={isPlayingReady ? 'Pause' : 'Lecture'}
-                    >
-                      {isPlayingReady ? (
-                        <svg className="w-7 h-7 fill-primary-700" viewBox="0 0 24 24">
-                          <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
-                        </svg>
-                      ) : (
-                        <svg className="w-7 h-7 fill-primary-700 ml-1" viewBox="0 0 24 24">
-                          <path d="M8 5v14l11-7z"/>
-                        </svg>
-                      )}
-                      {isPlayingReady && (
-                        <span className="absolute inset-0 rounded-full bg-white/30 pulse-ring" />
-                      )}
-                    </button>
-
-                    {/* Skip +10s */}
-                    <button
-                      onClick={() => handleSkip(10)}
-                      className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 active:bg-white/40 flex items-center justify-center transition-colors"
-                      aria-label="Avancer 10 secondes"
-                    >
-                      <svg className="w-5 h-5 fill-white" viewBox="0 0 24 24">
-                        <path d="M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8V1l-5 5 5 5V7c3.31 0 6 2.69 6 6z"/>
-                        <text x="12" y="16" textAnchor="middle" fontSize="5" fill="white" fontWeight="bold">10</text>
-                      </svg>
-                    </button>
-
-                    {/* Download */}
-                    <button
-                      onClick={handleDownload}
-                      className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 active:bg-white/40 flex items-center justify-center transition-colors"
-                      aria-label="Télécharger l'audio"
-                    >
-                      <svg className="w-5 h-5 fill-white" viewBox="0 0 24 24">
-                        <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
-                      </svg>
-                    </button>
-                  </div>
-
-                  {/* Download label */}
-                  <p className="text-center text-white/50 text-xs">
-                    Appui long sur ↓ pour enregistrer le fichier MP3
-                  </p>
-                </div>
-              )}
-
-              {/* ── STREAMING (Lingva fallback, no scrubber) ── */}
-              {audioPhase === 'streaming' && (
-                <div className="flex flex-col items-center gap-4">
-                  {!streamPlaying && (
-                    <p className="text-sm text-white/70 text-center">
-                      Mode flux · connexion lente détectée
-                    </p>
-                  )}
-                  <div className="flex items-center gap-5">
-                    {/* Replay */}
-                    <button
-                      onClick={() => { handleStop(); setTimeout(startStreaming, 50) }}
-                      className="w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
-                      aria-label="Rejouer"
-                    >
-                      <svg className="w-5 h-5 fill-white" viewBox="0 0 24 24">
-                        <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
-                      </svg>
-                    </button>
-
-                    {/* Play / Pause */}
-                    <button
-                      onClick={streamPlaying ? handlePauseResume : startStreaming}
-                      className="w-16 h-16 rounded-full bg-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-transform relative"
-                    >
-                      {streamPlaying && !streamPaused ? (
-                        <svg className="w-7 h-7 fill-primary-700" viewBox="0 0 24 24">
-                          <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
-                        </svg>
-                      ) : (
-                        <svg className="w-7 h-7 fill-primary-700 ml-1" viewBox="0 0 24 24">
-                          <path d="M8 5v14l11-7z"/>
-                        </svg>
-                      )}
-                      {streamPlaying && !streamPaused && (
-                        <span className="absolute inset-0 rounded-full bg-white/30 pulse-ring" />
-                      )}
-                    </button>
-
-                    {/* Stop */}
-                    <button
-                      onClick={handleStop}
-                      disabled={!streamPlaying}
-                      className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
-                        streamPlaying ? 'bg-white/20 hover:bg-white/30' : 'bg-white/10 opacity-40 cursor-not-allowed'
-                      }`}
-                      aria-label="Arrêter"
-                    >
-                      <svg className="w-5 h-5 fill-white" viewBox="0 0 24 24">
-                        <path d="M6 6h12v12H6z"/>
-                      </svg>
-                    </button>
-                  </div>
+                  {/* Stop */}
+                  <button
+                    onClick={handleStop}
+                    className="w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
+                    aria-label="Arrêter"
+                  >
+                    <svg className="w-5 h-5 fill-white" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+                  </button>
                 </div>
               )}
             </div>
 
-            {/* ── TTS error ── */}
+            {/* TTS error */}
             {ttsError && (
               <div className="bg-red-50 border border-red-200 rounded-2xl px-4 py-3.5 flex items-start gap-3">
                 <svg className="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -607,23 +269,22 @@ export default function AudioPlayer({
               </div>
             )}
 
-            {/* ── Translated text with live highlighting ── */}
+            {/* Translated text with chunk highlighting */}
             <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Texte traduit</p>
                 <button
                   onClick={handleCopy}
-                  className="flex items-center gap-1.5 text-xs text-primary-600 font-semibold hover:text-primary-700 transition-colors"
+                  className="flex items-center gap-1.5 text-xs text-primary-600 font-semibold hover:text-primary-700"
                 >
                   {copied ? (
-                    <><svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>Copié !</>
+                    <><svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>Copié !</>
                   ) : (
-                    <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copier</>
+                    <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>Copier</>
                   )}
                 </button>
               </div>
-
-              <p className="text-gray-700 text-sm leading-relaxed">
+              <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">
                 {chunks.map((chunk, idx) => (
                   <span
                     key={idx}
@@ -637,15 +298,6 @@ export default function AudioPlayer({
                   </span>
                 ))}
               </p>
-
-              {!isActuallyPlaying && audioPhase === 'ready' && audioDuration > 0 && audioCurrentTime >= audioDuration - 0.5 && (
-                <p className="mt-3 text-center text-xs text-green-600 font-semibold flex items-center justify-center gap-1.5">
-                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                  Lecture terminée
-                </p>
-              )}
             </div>
           </div>
         )}
@@ -667,41 +319,26 @@ export default function AudioPlayer({
 
     {/* ── Image zoom modal ── */}
     {imgModalOpen && imagePreview && (
-      <div
-        className="fixed inset-0 z-50 bg-black flex flex-col"
+      <div className="fixed inset-0 z-50 bg-black flex flex-col"
         style={{ paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
         <div className="flex items-center justify-between px-4 py-3 shrink-0 bg-black/60 backdrop-blur-sm">
-          <button
-            onClick={() => setImgModalOpen(false)}
-            className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors"
-          >
+          <button onClick={() => setImgModalOpen(false)}
+            className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center">
             <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12"/>
             </svg>
           </button>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setImgZoom((z) => Math.max(z - 0.5, 0.5))}
-              disabled={imgZoom <= 0.5}
-              className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white text-xl font-light disabled:opacity-30"
-            >−</button>
-            <button
-              onClick={() => setImgZoom(1)}
-              className="px-3 py-1.5 rounded-xl bg-white/15 text-white text-xs font-semibold min-w-[3.5rem] text-center"
-            >
-              {Math.round(imgZoom * 100)}%
-            </button>
-            <button
-              onClick={() => setImgZoom((z) => Math.min(z + 0.5, 5))}
-              disabled={imgZoom >= 5}
-              className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white text-xl font-light disabled:opacity-30"
-            >+</button>
+            <button onClick={() => setImgZoom(z => Math.max(z - 0.5, 0.5))} disabled={imgZoom <= 0.5}
+              className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white text-xl font-light disabled:opacity-30">−</button>
+            <button onClick={() => setImgZoom(1)}
+              className="px-3 py-1.5 rounded-xl bg-white/15 text-white text-xs font-semibold min-w-[3.5rem] text-center">
+              {Math.round(imgZoom * 100)}%</button>
+            <button onClick={() => setImgZoom(z => Math.min(z + 0.5, 5))} disabled={imgZoom >= 5}
+              className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white text-xl font-light disabled:opacity-30">+</button>
           </div>
-          <button
-            onClick={() => setImgZoom(1)}
-            className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center"
-          >
+          <button onClick={() => setImgZoom(1)} className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center">
             <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5"/>
@@ -709,22 +346,12 @@ export default function AudioPlayer({
           </button>
         </div>
         <div className="flex-1 overflow-auto" style={{ cursor: imgZoom > 1 ? 'grab' : 'default' }}>
-          <div
-            className="min-h-full flex items-center justify-center p-4"
-            style={{ minWidth: imgZoom > 1 ? `${imgZoom * 100}%` : '100%' }}
-          >
-            <img
-              src={imagePreview}
-              alt="document"
-              draggable={false}
-              style={{
-                transform: `scale(${imgZoom})`,
-                transformOrigin: 'center center',
-                transition: 'transform 0.2s ease',
-                maxWidth: imgZoom <= 1 ? '100%' : 'none',
-                display: 'block',
-                userSelect: 'none',
-              }}
+          <div className="min-h-full flex items-center justify-center p-4"
+            style={{ minWidth: imgZoom > 1 ? `${imgZoom * 100}%` : '100%' }}>
+            <img src={imagePreview} alt="document" draggable={false}
+              style={{ transform: `scale(${imgZoom})`, transformOrigin: 'center center',
+                transition: 'transform 0.2s ease', maxWidth: imgZoom <= 1 ? '100%' : 'none',
+                display: 'block', userSelect: 'none' }}
             />
           </div>
         </div>
@@ -734,7 +361,6 @@ export default function AudioPlayer({
   )
 }
 
-/* ── Icon helpers ─────────────────────────────────────── */
 function ScanIcon() {
   return (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -751,7 +377,6 @@ function TranslateIcon() {
   )
 }
 
-/* ── Progress bar item ────────────────────────────────── */
 function ProgressItem({ label, icon, progress, done, disabled }) {
   return (
     <div className={`rounded-2xl p-4 border transition-colors ${
@@ -766,17 +391,15 @@ function ProgressItem({ label, icon, progress, done, disabled }) {
           :           'bg-primary-100 text-primary-600'
         } ${!disabled && !done ? 'spin-slow' : ''}`}>
           {done
-            ? <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+            ? <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
             : icon}
         </div>
         <p className="text-sm font-semibold text-gray-700 flex-1">{label}</p>
         <span className={`text-xs font-bold ${done ? 'text-green-600' : 'text-primary-600'}`}>{progress}%</span>
       </div>
       <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all duration-300 ${done ? 'bg-green-500' : 'bg-primary-500'}`}
-          style={{ width: `${progress}%` }}
-        />
+        <div className={`h-full rounded-full transition-all duration-300 ${done ? 'bg-green-500' : 'bg-primary-500'}`}
+          style={{ width: `${progress}%` }} />
       </div>
     </div>
   )

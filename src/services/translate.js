@@ -207,5 +207,5 @@ export async function translateText(text, sourceLang, targetLang, onProgress) {
     if (i < chunks.length - 1) await sleep(DELAY_MS)
   }
 
-  return { text: cleanTranslatedText(parts.join(' ')), detectedLang }
+  return { text: cleanTranslatedText(parts.join('\n\n')), detectedLang }
 }

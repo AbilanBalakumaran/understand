@@ -65,7 +65,7 @@ const ISO1_TO_TESSERACT = {
 
 function detectDominantScript(text) {
   const ns = text.replace(/\s/g, '')
-  if (ns.length < 10) return null
+  if (ns.length < 3) return null
 
   const count = (re) => (text.match(re) || []).length
   const r     = (n)  => n / ns.length

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import UploadStep     from './components/UploadStep'
 import LanguageSelect from './components/LanguageSelect'
 import AudioPlayer    from './components/AudioPlayer'
@@ -45,6 +45,9 @@ export default function App() {
   // ── Navigation ──────────────────────────────────────────────────
   const [step, setStep]                         = useState(STEP.UPLOAD)
 
+  // ── Cancellation token — set to true when user navigates away mid-processing
+  const cancelRef = useRef(false)
+
   // ── Image ───────────────────────────────────────────────────────
   const [imageFile, setImageFile]               = useState(null)
   const [imagePreview, setImagePreview]         = useState(null)
@@ -69,6 +72,7 @@ export default function App() {
   }, [])
 
   const handleLanguageConfirm = async ({ targetLang: tl }) => {
+    cancelRef.current = false  // reset any previous cancellation
     setTargetLang(tl)
     setStep(STEP.AUDIO)
     setIsProcessing(true)
@@ -91,17 +95,18 @@ export default function App() {
         let isNative = false
 
         if (originalPdf) {
-          // Simulate progress while pdfjs loads (native extraction is instant)
           setOcrProgress(20)
           rawText = await extractPdfNativeText(originalPdf, 20)
+          if (cancelRef.current) return
           if (rawText) {
             isNative = true
             setOcrProgress(100)
           } else {
-            // Scanned PDF: OCR each page
             const pageBlobs = await convertPdfToImages(originalPdf, 10)
+            if (cancelRef.current) return
             const parts = []
             for (let i = 0; i < pageBlobs.length; i++) {
+              if (cancelRef.current) return
               const pageText = await extractTextAuto(pageBlobs[i], (p) =>
                 setOcrProgress(Math.round((i / pageBlobs.length) * 100 + p / pageBlobs.length))
               )
@@ -112,8 +117,8 @@ export default function App() {
         }
 
         if (!rawText) {
-          // Single image (or fallback)
           rawText = await extractTextAuto(imageFile, (p) => setOcrProgress(p))
+          if (cancelRef.current) return
         }
 
         setOcrProgress(100)
@@ -122,7 +127,6 @@ export default function App() {
           throw new Error("Aucun texte lisible dans l'image. Prenez une photo plus nette.")
         }
 
-        // Use light cleaning for native PDF (no OCR noise), full filter for images
         const cleanedText = isNative
           ? cleanNativePdfText(rawText)
           : cleanOCRText(rawText)
@@ -131,12 +135,10 @@ export default function App() {
           throw new Error("Le texte extrait ne contient pas de contenu lisible. Essayez avec une photo du document seul.")
         }
 
-        // Step 2 — Translate (auto source: API detects language per chunk)
         const { text: translated, detectedLang: dl } = await translateText(cleanedText, 'auto', tl.code, (p) => setTranslateProgress(p))
-        setTranslateProgress(100)
+        if (cancelRef.current) return
 
-        // If Google detected the source == target language, the doc is already
-        // in the right language — show the original text as-is.
+        setTranslateProgress(100)
         const isSameLang = dl && dl.split('-')[0] === tl.code.split('-')[0]
         setTranslatedText(isSameLang ? cleanedText : translated)
         if (dl) setDetectedLang(dl)
@@ -146,9 +148,10 @@ export default function App() {
           `Votre document a été traduit en ${tl.name}. Touchez pour écouter.`
         )
       } catch (err) {
+        if (cancelRef.current) return  // user navigated away — swallow the error
         setError(err.message || 'Une erreur inattendue est survenue. Veuillez réessayer.')
       } finally {
-        setIsProcessing(false)
+        if (!cancelRef.current) setIsProcessing(false)
       }
     }
 
@@ -207,7 +210,7 @@ export default function App() {
             isProcessing={isProcessing}
             error={error}
             onStartOver={handleStartOver}
-            onBack={() => setStep(STEP.LANGUAGE)}
+            onBack={() => { cancelRef.current = true; setStep(STEP.LANGUAGE) }}
           />
         )}
       </div>

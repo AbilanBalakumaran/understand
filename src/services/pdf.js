@@ -115,7 +115,13 @@ export async function extractPdfNativeText(file, maxPages = 5) {
     const cleaned    = fullText.trim()
     const letterCount = (cleaned.match(/\p{L}/gu) || []).length
     // Fewer than 80 letters → treat as scanned (no usable native text)
-    return letterCount >= 80 ? cleaned : null
+    if (letterCount < 80) return null
+    // Detect CID-encoded fonts: pdfjs returns "(cid:23)(cid:45)..." instead of real text.
+    // If > 5% of non-whitespace chars are part of (cid:xx) sequences, treat as scanned.
+    const cidMatches = (cleaned.match(/\(cid:\d+\)/g) || []).length
+    const nonWsLen   = cleaned.replace(/\s/g, '').length
+    if (nonWsLen > 0 && cidMatches / nonWsLen > 0.01) return null
+    return cleaned
   } catch {
     return null
   }
