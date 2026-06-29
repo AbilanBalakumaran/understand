@@ -9,7 +9,7 @@
 const GEMINI_MODEL = 'gemini-2.5-flash'
 const ALLOWED_ORIGINS = [
   'https://abilanbalakumaran.github.io',
-  'https://wandering-river-a352.mangateamz2.workers.dev',
+  'https://sweet-credit-4b8a.mangateamz2.workers.dev',
   'http://localhost:5173',
   'http://localhost:4173',
 ]
