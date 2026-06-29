@@ -1,14 +1,50 @@
 /**
- * TTS — always-stream architecture.
+ * TTS pipeline — two layers:
  *
- * speak() is called synchronously from a click handler, so iOS Safari
- * never blocks playback. No generateAudio/Lingva pre-fetch, no async
- * barrier between the user gesture and audio.play().
+ * 1. generateAudio (ready mode — seek bar + download)
+ *    Pre-fetches all chunks from Lingva and merges into a single MP3 blob.
+ *    Returns { blob, chunks } or null if Lingva is unavailable.
  *
- * Chain: Google TTS <audio src=url> → Web Speech API (last resort)
+ * 2. speak (streaming mode — always works, all languages)
+ *    Google TTS <audio src=url> → Web Speech API fallback.
+ *    Called synchronously from a click handler.
+ *
+ * iOS Safari fix: AudioContext.resume() is called synchronously from the click
+ * handler before any await, unlocking audio for the whole page session.
  */
 
 const MAX_CHUNK = 180
+
+// ─── AbortSignal polyfill (Chrome 103+ / Safari 16+ / Android < 2022) ────
+
+function abortAfter(ms) {
+  if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(ms)
+  const ac = new AbortController()
+  setTimeout(() => ac.abort(), ms)
+  return ac.signal
+}
+
+// ─── iOS AudioContext unlock ───────────────────────────────────────────────
+// Call this synchronously inside a click/tap handler to unlock iOS Safari's
+// audio policy for the rest of the page session. After this, audio.play()
+// works even from async contexts (after await).
+
+export function unlockAudioContext() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext
+    if (!Ctx) return
+    const ctx = new Ctx()
+    // Create and play a silent buffer (0 samples) — just to trigger the unlock
+    const buf = ctx.createBuffer(1, 1, 22050)
+    const src = ctx.createBufferSource()
+    src.buffer = buf
+    src.connect(ctx.destination)
+    src.start(0)
+    ctx.resume().catch(() => {})
+    // Close after a tick so it doesn't linger
+    setTimeout(() => ctx.close().catch(() => {}), 500)
+  } catch (_) {}
+}
 
 // ─── Chunk splitter ────────────────────────────────────────────────────────
 
@@ -16,10 +52,7 @@ export function splitIntoChunks(text) {
   if (text.length <= MAX_CHUNK) return [text]
 
   const sentences = text
-    // Latin/Arabic: split on sentence-end + whitespace (避免 splitting URLs/abbreviations).
-    // CJK/Thai: split on sentence-end chars directly (no spaces between sentences).
-    // U+061F = ؟ (Arabic ?), U+06D4 = ۔ (Urdu .), U+3002 = 。(CJK .), U+FF01/FF1F = ！？
-    .replace(/([.!?।।؟۔])\s+/g, '$1\n')   // Latin/Arabic: require trailing space
+    .replace(/([.!?।।؟۔])\s+/g, '$1\n')
     .replace(/([。！？])/g, '$1\n')
     .split('\n')
     .map(s => s.trim())
@@ -37,8 +70,6 @@ export function splitIntoChunks(text) {
       if (sentence.length <= MAX_CHUNK) {
         current = sentence
       } else {
-        // Sentence exceeds MAX_CHUNK — split by spaces first (Latin scripts),
-        // then by hard character limit (CJK/Thai/other scripts without spaces).
         current = ''
         const words = sentence.split(' ')
         if (words.length > 1) {
@@ -48,7 +79,6 @@ export function splitIntoChunks(text) {
             else { if (current) chunks.push(current); current = word }
           }
         } else {
-          // No spaces (CJK/Thai): slice at MAX_CHUNK boundaries
           for (let i = 0; i < sentence.length; i += MAX_CHUNK) {
             chunks.push(sentence.slice(i, i + MAX_CHUNK))
           }
@@ -61,31 +91,55 @@ export function splitIntoChunks(text) {
   return chunks.length ? chunks : [text.slice(0, MAX_CHUNK)]
 }
 
+// ─── Lingva TTS (blob fetch — for seek bar + download) ────────────────────
+
+const LINGVA_INSTANCES = [
+  'https://lingva.ml',
+  'https://translate.plausibility.cloud',
+]
+
+async function fetchLingvaBlob(text, langBcp47) {
+  const lang = langBcp47.split('-')[0]
+  for (const instance of LINGVA_INSTANCES) {
+    try {
+      const url = `${instance}/api/v1/audio/${lang}/${encodeURIComponent(text)}`
+      const res = await fetch(url, { signal: abortAfter(10000) })
+      if (!res.ok) continue
+      const data = await res.json()
+      if (!Array.isArray(data.audio) || !data.audio.length) continue
+      return new Blob([new Uint8Array(data.audio)], { type: 'audio/mpeg' })
+    } catch (_) {}
+  }
+  return null
+}
+
 // ─── Google TTS URL ────────────────────────────────────────────────────────
-// Same endpoint as our translation API. <audio src=url> loads it without
-// CORS restrictions — no fetch() needed, no blob, no object URL.
 
 function googleTtsUrl(text, langBcp47) {
   const lang = langBcp47.split('-')[0]
   return `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${lang}&client=gtx`
 }
 
-// ─── Shared state ─────────────────────────────────────────────────────────
+// ─── Shared streaming state ────────────────────────────────────────────────
 
 let isActive = false
 let currentAudio = null
+let objectUrls = []
+
+function cleanupUrls() {
+  objectUrls.forEach(u => { try { URL.revokeObjectURL(u) } catch (_) {} })
+  objectUrls = []
+}
 
 // ─── Google TTS streaming ──────────────────────────────────────────────────
-// Plays chunks sequentially via <audio src=googleTtsUrl>.
-// Each chunk's playback triggers the next — stays within iOS audio policy.
 
 function speakWithGoogleTts(text, lang, { rate = 1.0, onEnd, onError, onChunkStart } = {}) {
   const chunks = splitIntoChunks(text)
   let index = 0
 
   const playNext = () => {
-    if (!isActive) return
-    if (index >= chunks.length) { isActive = false; onEnd?.(); return }
+    if (!isActive) { cleanupUrls(); return }
+    if (index >= chunks.length) { isActive = false; cleanupUrls(); onEnd?.(); return }
 
     const chunkIndex = index
     const chunk = chunks[index++]
@@ -98,19 +152,16 @@ function speakWithGoogleTts(text, lang, { rate = 1.0, onEnd, onError, onChunkSta
     audio.addEventListener('ended', playNext, { once: true })
     audio.addEventListener('error', () => {
       if (!isActive) return
-      // Google TTS failed (network issue) → try Web Speech for remaining text
       const remaining = chunks.slice(index - 1).join(' ')
       speakWithWebSpeech(remaining, lang, { rate, onEnd, onError,
-        onChunkStart: i => onChunkStart?.(chunkIndex + i)
-      })
+        onChunkStart: i => onChunkStart?.(chunkIndex + i) })
     }, { once: true })
 
     audio.play().catch(() => {
       if (!isActive) return
       const remaining = chunks.slice(index - 1).join(' ')
       speakWithWebSpeech(remaining, lang, { rate, onEnd, onError,
-        onChunkStart: i => onChunkStart?.(chunkIndex + i)
-      })
+        onChunkStart: i => onChunkStart?.(chunkIndex + i) })
     })
   }
 
@@ -137,7 +188,6 @@ function speakWithWebSpeech(text, lang, { rate = 1.0, onEnd, onError, onChunkSta
     onError?.(new Error('Synthèse vocale non supportée sur cet appareil.'))
     return
   }
-
   const chunks = splitIntoChunks(text)
   let index = 0
   let voice = null
@@ -186,6 +236,7 @@ function speakWithWebSpeech(text, lang, { rate = 1.0, onEnd, onError, onChunkSta
 
 export function stopSpeech() {
   isActive = false
+  cleanupUrls()
   if (currentAudio) { currentAudio.pause(); currentAudio.src = ''; currentAudio = null }
   if ('speechSynthesis' in window) { window.speechSynthesis.cancel(); currentUtterance = null }
 }
@@ -201,12 +252,31 @@ export function resumeSpeech() {
 }
 
 /**
- * Streams text via Google TTS → Web Speech fallback.
- * Must be called synchronously from a user-gesture handler (click/tap)
- * so that iOS Safari allows audio.play() on the first chunk.
+ * Streams text via Google TTS (synchronous — safe for iOS Safari click handler).
  */
 export function speak(text, lang, { rate = 1.0, onEnd, onError, onChunkStart } = {}) {
   stopSpeech()
   isActive = true
   speakWithGoogleTts(text, lang, { rate, onEnd, onError, onChunkStart })
+}
+
+/**
+ * Pre-fetches all chunks from Lingva → single MP3 blob.
+ * Enables the seek bar + download button.
+ * Returns { blob, chunks } or null if Lingva is unavailable.
+ */
+export async function generateAudio(text, lang, { onProgress, signal } = {}) {
+  const chunks = splitIntoChunks(text)
+  const blobs  = []
+
+  for (let i = 0; i < chunks.length; i++) {
+    if (signal?.aborted) return null
+    const blob = await fetchLingvaBlob(chunks[i], lang)
+    if (signal?.aborted) return null
+    if (!blob) return null
+    blobs.push(blob)
+    onProgress?.(Math.round(((i + 1) / chunks.length) * 100))
+  }
+
+  return { blob: new Blob(blobs, { type: 'audio/mpeg' }), chunks }
 }
