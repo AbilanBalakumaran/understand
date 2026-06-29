@@ -261,11 +261,36 @@ export function speak(text, lang, { rate = 1.0, onEnd, onError, onChunkStart } =
 }
 
 /**
- * Pre-fetches all chunks from Lingva → single MP3 blob.
- * Enables the seek bar + download button.
- * Returns { blob, chunks } or null if Lingva is unavailable.
+ * Pre-fetches audio for the full text → single blob (enables seek bar + download).
+ *
+ * Priority:
+ *   1. Gemini TTS (if Worker available) — better quality, all languages
+ *   2. Lingva TTS (fallback)
+ * Returns { blob, chunks } or null → caller falls back to streaming.
  */
 export async function generateAudio(text, lang, { onProgress, signal } = {}) {
+  // ── 1. Try Gemini TTS ─────────────────────────────────────────────────
+  try {
+    const { generateAudioWithGemini, isGeminiAvailable } = await import('./gemini-ocr')
+    if (isGeminiAvailable()) {
+      if (signal?.aborted) return null
+      onProgress?.(5)
+      // Gemini TTS handles the full text in one call (chunks internally on server)
+      const wavBlob = await generateAudioWithGemini(text, lang.split('-')[0])
+      if (signal?.aborted) return null
+      if (wavBlob && wavBlob.size > 100) {
+        onProgress?.(100)
+        return { blob: wavBlob, chunks: splitIntoChunks(text) }
+      }
+    }
+  } catch (e) {
+    // Gemini TTS unavailable or quota → fall through to Lingva
+    if (!e.message?.includes('GEMINI_UNAVAILABLE') && !e.message?.includes('GEMINI_KEY_MISSING')) {
+      console.warn('[tts] Gemini TTS error:', e.message)
+    }
+  }
+
+  // ── 2. Lingva TTS fallback ─────────────────────────────────────────────
   const chunks = splitIntoChunks(text)
   const blobs  = []
 

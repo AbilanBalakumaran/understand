@@ -6,7 +6,7 @@ import SplashScreen   from './components/SplashScreen'
 import { extractTextAuto } from './services/ocr'
 import { extractPdfNativeText, convertPdfToImages } from './services/pdf'
 import { translateText } from './services/translate'
-import { processWithGemini, isGeminiAvailable } from './services/gemini-ocr'
+import { processWithGemini, checkImageQuality, summarizeDocument, isGeminiAvailable } from './services/gemini-ocr'
 import { requestNotifPermission, sendNotification } from './services/notifications'
 
 const STEP = { UPLOAD: 0, LANGUAGE: 1, AUDIO: 2 }
@@ -102,6 +102,7 @@ export default function App() {
   const [targetLang, setTargetLang]             = useState(null)
   const [translatedText, setTranslatedText]     = useState('')
   const [detectedLang, setDetectedLang]         = useState(null)
+  const [summary, setSummary]                   = useState('')
   const [ocrProgress, setOcrProgress]           = useState(0)
   const [translateProgress, setTranslateProgress] = useState(0)
   const [isProcessing, setIsProcessing]         = useState(false)
@@ -130,6 +131,7 @@ export default function App() {
     setTranslateProgress(0)
     setTranslatedText('')
     setDetectedLang(null)
+    setSummary('')
 
     requestNotifPermission()
 
@@ -138,15 +140,22 @@ export default function App() {
         const originalPdf = imageFile?._originalPdf
 
         // ── PATH A: Gemini (OCR + translation in ONE call) ─────────────────
-        // Gemini reads the full image and translates with document-level context.
-        // Much better quality than separate OCR → translate steps.
-        if (isGeminiAvailable() && !originalPdf) {
+        if (isGeminiAvailable()) {
           try {
+            // Step 0: Quick quality check — give early feedback if image is unusable
+            const imageToCheck = originalPdf ? imageFile : imageFile
+            const quality = await checkImageQuality(imageToCheck)
+            if (stale()) return
+            if (!quality.ok && quality.issue) {
+              throw new Error(`Image trop mauvaise : ${quality.issue}. Prenez une photo plus nette.`)
+            }
+
+            // Step 1: Send image OR PDF directly — Gemini handles all pages natively
+            const sourceBlob = originalPdf || imageFile
             const translated = await processWithGemini(
-              imageFile,
+              sourceBlob,
               tl,
               (p) => {
-                // Map Gemini progress across both bars for smooth UX
                 if (p <= 50) setOcrProgress(p * 2)
                 else { setOcrProgress(100); setTranslateProgress((p - 50) * 2) }
               }
@@ -156,12 +165,21 @@ export default function App() {
               setOcrProgress(100)
               setTranslateProgress(100)
               setTranslatedText(translated)
+
+              // Step 2: Generate summary in background (non-blocking)
+              summarizeDocument(translated, tl).then(s => {
+                if (s && !stale()) setSummary(s)
+              })
+
               sendNotification('Understand — Audio prêt ! 🎧', `Votre document a été traduit en ${tl.name}. Touchez pour écouter.`)
               return
             }
           } catch (geminiErr) {
+            if (!geminiErr.message?.includes('GEMINI_UNAVAILABLE') && !geminiErr.message?.includes('GEMINI_KEY_MISSING')) {
+              throw geminiErr  // real error (bad image, etc.) — show to user
+            }
             // Quota or unavailable → fall through to Tesseract + Google Translate
-            console.warn('[app] Gemini process failed, using fallback:', geminiErr.message)
+            console.warn('[app] Gemini unavailable, using fallback:', geminiErr.message)
           }
         }
 
@@ -256,6 +274,7 @@ export default function App() {
     setTargetLang(null)
     setTranslatedText('')
     setDetectedLang(null)
+    setSummary('')
     setOcrProgress(0)
     setTranslateProgress(0)
     setIsProcessing(false)
@@ -291,6 +310,7 @@ export default function App() {
             targetLang={targetLang}
             translatedText={translatedText}
             detectedLang={detectedLang}
+            summary={summary}
             ocrProgress={ocrProgress}
             translateProgress={translateProgress}
             isProcessing={isProcessing}
