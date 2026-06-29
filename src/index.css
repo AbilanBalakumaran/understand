@@ -7,6 +7,12 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Eliminate 300ms tap delay on older Android (pre-Chrome 55) and
+   Samsung Internet. touch-action: manipulation signals no double-tap zoom. */
+a, button, input, select, textarea, [role="button"] {
+  touch-action: manipulation;
+}
+
 /* ── Brand color — single source of truth used by splash, hero, status-bar ── */
 :root {
   --color-brand: #1A44E8;

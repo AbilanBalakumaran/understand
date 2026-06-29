@@ -283,7 +283,12 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
                   d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               <input
-                type="text"
+                type="search"
+                inputMode="search"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 placeholder={t.search}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}

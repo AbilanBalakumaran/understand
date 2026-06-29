@@ -151,7 +151,15 @@ export default function App() {
         )
       } catch (err) {
         if (stale()) return
-        setError(err.message || 'Une erreur inattendue est survenue. Veuillez réessayer.')
+        // Give a clear offline message when the network is the cause
+        const isNetworkError = err instanceof TypeError &&
+          (err.message.includes('fetch') || err.message.includes('network') ||
+           err.message.includes('Failed') || err.message.includes('NetworkError'))
+        const isOffline = !navigator.onLine
+        const msg = (isOffline || isNetworkError)
+          ? 'Pas de connexion internet. Vérifiez votre réseau et réessayez.'
+          : err.message || 'Une erreur inattendue est survenue. Veuillez réessayer.'
+        setError(msg)
       } finally {
         if (!stale()) setIsProcessing(false)
       }

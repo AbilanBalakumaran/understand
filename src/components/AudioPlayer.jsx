@@ -106,10 +106,31 @@ export default function AudioPlayer({
 
   const handleCopy = () => {
     if (!translatedText) return
-    navigator.clipboard.writeText(translatedText).then(() => {
+    // navigator.clipboard requires HTTPS and a modern browser.
+    // Fall back to the legacy execCommand approach for older browsers.
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(translatedText).then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      }).catch(() => legacyCopy())
+    } else {
+      legacyCopy()
+    }
+  }
+
+  const legacyCopy = () => {
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = translatedText
+      ta.style.position = 'fixed'
+      ta.style.opacity  = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    })
+    } catch (_) {}
   }
 
   const handleBack = () => { handleStop(); onBack() }

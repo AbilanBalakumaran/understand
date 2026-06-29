@@ -5,6 +5,18 @@
 
 let _pdfjsLib = null
 
+// File.arrayBuffer() is only available on iOS 14+ / Chrome 76+.
+// FileReader.readAsArrayBuffer() works back to iOS 7 — use it as universal fallback.
+function fileToArrayBuffer(file) {
+  if (typeof file.arrayBuffer === 'function') return file.arrayBuffer()
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload  = () => resolve(reader.result)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsArrayBuffer(file)
+  })
+}
+
 async function loadPdfJs() {
   if (_pdfjsLib) return _pdfjsLib
 
@@ -35,7 +47,7 @@ async function loadPdfJs() {
  */
 export async function convertPdfToImages(file, maxPages = 10, scale = 2) {
   const pdfjs       = await loadPdfJs()
-  const arrayBuffer = await file.arrayBuffer()
+  const arrayBuffer = await fileToArrayBuffer(file)
   const pdf         = await pdfjs.getDocument({ data: arrayBuffer }).promise
   const total       = Math.min(pdf.numPages, maxPages)
   const blobs       = []
@@ -68,7 +80,7 @@ export async function convertPdfToImages(file, maxPages = 10, scale = 2) {
  */
 export async function convertPdfToImage(file, scale = 2) {
   const pdfjs      = await loadPdfJs()
-  const arrayBuffer = await file.arrayBuffer()
+  const arrayBuffer = await fileToArrayBuffer(file)
   const pdf        = await pdfjs.getDocument({ data: arrayBuffer }).promise
   const page       = await pdf.getPage(1)
   const viewport   = page.getViewport({ scale })
@@ -104,7 +116,7 @@ export function isPdf(file) {
 export async function extractPdfNativeText(file, maxPages = 5) {
   try {
     const pdfjs       = await loadPdfJs()
-    const arrayBuffer = await file.arrayBuffer()
+    const arrayBuffer = await fileToArrayBuffer(file)
     const pdf         = await pdfjs.getDocument({ data: arrayBuffer }).promise
     const total       = Math.min(pdf.numPages, maxPages)
 
