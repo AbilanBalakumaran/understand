@@ -1,4 +1,5 @@
 import { createWorker } from 'tesseract.js'
+import { extractTextWithGemini, isGeminiAvailable } from './gemini-ocr'
 
 // ─── Image preprocessing ───────────────────────────────────────────────────
 //
@@ -239,6 +240,22 @@ const ISO1_TO_TESSERACT = {
 //   5. Return the best result
 
 export async function extractTextAuto(image, onProgress, knownLang = null) {
+  // ── Gemini Vision (primary — best quality for all scripts and document types)
+  // Falls back to Tesseract automatically on quota exceeded or API errors.
+  if (isGeminiAvailable()) {
+    try {
+      const text = await extractTextWithGemini(image, onProgress)
+      if (text && text.trim().length > 3) return text
+    } catch (err) {
+      // GEMINI_UNAVAILABLE / quota / network → fall through to Tesseract
+      if (!err.message?.startsWith('GEMINI_KEY_MISSING')) {
+        console.warn('[ocr] Gemini unavailable, falling back to Tesseract:', err.message)
+      }
+    }
+  }
+
+  // ── Tesseract fallback ────────────────────────────────────────────────────
+
   // Step 1: Preprocess (browser only — no-op if Canvas unavailable)
   let processedImage = image
   if (typeof document !== 'undefined') {
