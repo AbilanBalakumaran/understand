@@ -1,6 +1,15 @@
 const CHUNK_SIZE = 4800  // Google unofficial API supports up to ~5000 chars
 const DELAY_MS   = 150
 
+// AbortSignal.timeout is available Chrome 103+, Firefox 100+, Safari 16+.
+// For older browsers (some Android < 2022), fall back to a manual abort.
+function abortAfter(ms) {
+  if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(ms)
+  const ac = new AbortController()
+  setTimeout(() => ac.abort(), ms)
+  return ac.signal
+}
+
 // ─── Google Translate unofficial (no key required) ─────────────────────────
 // Uses the same endpoint as many browser extensions. Reliable, supports all
 // language pairs and scripts natively.
@@ -10,7 +19,7 @@ async function googleTranslate(text, sourceLang, targetLang) {
   const tl  = targetLang.split('-')[0]
   const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=${tl}&dt=t&q=${encodeURIComponent(text)}`
 
-  const res = await fetch(url, { signal: AbortSignal.timeout(12000) })
+  const res = await fetch(url, { signal: abortAfter(12000) })
   if (!res.ok) throw new Error(`Google HTTP ${res.status}`)
 
   const data = await res.json()
@@ -44,7 +53,7 @@ const LATIN_LANG_CODES = new Set([
 
 async function myMemoryTranslate(text, sourceLang, targetLang) {
   const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`
-  const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
+  const res = await fetch(url, { signal: abortAfter(10000) })
   if (!res.ok) throw new Error(`MyMemory HTTP ${res.status}`)
   const data = await res.json()
   if (data.quotaFinished === true) throw new Error('QUOTA_EXCEEDED')
@@ -74,7 +83,7 @@ async function lingvaTranslate(text, sourceLang, targetLang) {
   for (const instance of LINGVA_INSTANCES) {
     try {
       const url = `${instance}/api/v1/${src}/${tgt}/${encodeURIComponent(text)}`
-      const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
+      const res = await fetch(url, { signal: abortAfter(10000) })
       if (!res.ok) { errors.push(`${instance}: HTTP ${res.status}`); continue }
       const data = await res.json()
       if (data.translation) return data.translation
@@ -127,8 +136,17 @@ async function translateChunk(chunk, sourceLang, targetLang) {
   // Try Google first (always — handles all scripts perfectly)
   try {
     const { translated, detectedLang } = await googleTranslate(chunk, sourceLang, targetLang)
+
+    // If Google detected the same language as the target, the document is
+    // already in the right language — return as-is (not an error).
+    if (detectedLang && detectedLang.split('-')[0] === tgtBase) {
+      return { text: chunk, detectedLang }
+    }
+
     if (chunk.length > 20 && translated.trim() === chunk.trim()) {
-      throw new Error('Identity: translation equals source')
+      // Unexpected identity (different lang codes but same output) — still return
+      // the text rather than crashing. The caller will decide what to show.
+      return { text: chunk, detectedLang }
     }
     return { text: translated, detectedLang }
   } catch (googleErr) {

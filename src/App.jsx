@@ -36,15 +36,19 @@ const TARGET_SCRIPT_REGEX = {
   am: /[ሀ-፿]/g,
 }
 
-// A token is a "real word" if it has 2+ letters and at least one vowel.
-// Short all-uppercase tokens (≤ 3 chars) are treated as OCR noise.
-function isRealWord(token) {
-  const letters = token.replace(/[^a-zA-ZÀ-ÿĀ-ɏ]/g, '')
-  if (letters.length < 2) return false
-  if (letters.length <= 3 && letters === letters.toUpperCase()) return false
-  return /[aeiouyàáâãäåèéêëìíîïòóôõöùúûüæœАЕИОУЫЭЮЯ]/i.test(letters)
+// Light cleaning for native PDF text — only normalise whitespace and strip
+// invisible control characters. Never filters valid content.
+function cleanNativePdfText(text) {
+  return text
+    .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
+// OCR noise filter — only removes lines that are clearly scanner garbage:
+// pure symbol runs, extremely low letter density (< 10%), or page-number
+// timestamps. Does NOT filter administrative codes, acronyms, or amounts.
 function cleanOCRText(text, targetLangCode) {
   const scriptRegex = TARGET_SCRIPT_REGEX[targetLangCode]
   let processed = scriptRegex
@@ -54,19 +58,14 @@ function cleanOCRText(text, targetLangCode) {
   const lines   = processed.split('\n').map((l) => l.trim()).filter(Boolean)
   const cleaned = lines.filter((line) => {
     const letters = (line.match(/\p{L}/gu) || [])
-    if (letters.length < 4) return false
-    if (/^[""''"'<>\[\]{}/\\|=+*&#@~`]+/.test(line)) return false
-    if (/^\d{1,2}:\d{2}/.test(line)) return false
-    if (letters.length < line.length * 0.3) return false
-
-    // Filter lines that are mostly OCR noise:
-    // require at least 35% of space-separated tokens to be "real" words
-    const tokens = line.split(/\s+/).filter(Boolean)
-    if (tokens.length >= 3) {
-      const realCount = tokens.filter(isRealWord).length
-      if (realCount / tokens.length < 0.35) return false
-    }
-
+    // Remove lines with zero letters (pure symbols/numbers noise)
+    if (letters.length === 0) return false
+    // Remove lines starting with noise characters (common OCR artefacts)
+    if (/^[|_=+*#~`]{3,}/.test(line)) return false
+    // Remove HH:MM timestamps (usually OCR'd from video/screen artefacts)
+    if (/^\d{1,2}:\d{2}$/.test(line)) return false
+    // Remove lines where letters make up less than 10% (e.g. "| 1 | 1 | 1 |")
+    if (letters.length < line.replace(/\s/g, '').length * 0.10) return false
     return true
   })
 
@@ -122,13 +121,17 @@ export default function App() {
         // Step 1 — Text extraction
         // Priority: native PDF text → multi-page scanned OCR → single image OCR
         const originalPdf = imageFile?._originalPdf
-        let rawText = null
+        let rawText  = null
+        let isNative = false
 
         if (originalPdf) {
-          // Try native PDF text extraction first (instant, 100% accurate)
+          // Simulate progress while pdfjs loads (native extraction is instant)
+          setOcrProgress(20)
           rawText = await extractPdfNativeText(originalPdf, 20)
-
-          if (!rawText) {
+          if (rawText) {
+            isNative = true
+            setOcrProgress(100)
+          } else {
             // Scanned PDF: OCR each page
             const pageBlobs = await convertPdfToImages(originalPdf, 10)
             const parts = []
@@ -153,7 +156,10 @@ export default function App() {
           throw new Error("Aucun texte lisible dans l'image. Prenez une photo plus nette.")
         }
 
-        const cleanedText = cleanOCRText(rawText, tl.code)
+        // Use light cleaning for native PDF (no OCR noise), full filter for images
+        const cleanedText = isNative
+          ? cleanNativePdfText(rawText)
+          : cleanOCRText(rawText, tl.code)
 
         if (!cleanedText || cleanedText.trim().length < 3) {
           throw new Error("Le texte extrait ne contient pas de contenu lisible. Essayez avec une photo du document seul.")
@@ -162,7 +168,11 @@ export default function App() {
         // Step 2 — Translate (auto source: API detects language per chunk)
         const { text: translated, detectedLang: dl } = await translateText(cleanedText, 'auto', tl.code, (p) => setTranslateProgress(p))
         setTranslateProgress(100)
-        setTranslatedText(translated)
+
+        // If Google detected the source == target language, the doc is already
+        // in the right language — show the original text as-is.
+        const isSameLang = dl && dl.split('-')[0] === tl.code.split('-')[0]
+        setTranslatedText(isSameLang ? cleanedText : translated)
         if (dl) setDetectedLang(dl)
 
         sendNotification(

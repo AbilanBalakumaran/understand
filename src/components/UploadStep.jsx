@@ -131,6 +131,8 @@ export default function UploadStep({ onImageSelected }) {
     setIsRotating(true)
     try {
       const rotatedBlob = await applyCanvasRotation(basePreview, newRot)
+      // Preserve the original PDF reference so App.jsx can still use native text
+      if (baseFile?._originalPdf) rotatedBlob._originalPdf = baseFile._originalPdf
       const rotatedUrl  = URL.createObjectURL(rotatedBlob)
       setFile(rotatedBlob)
       setPreview(rotatedUrl)
