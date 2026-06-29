@@ -116,7 +116,7 @@ export default function App() {
     setImagePreview(preview)
   }, [])
 
-  const handleLanguageConfirm = async ({ targetLang: tl, sourceLang: sl }) => {
+  const handleLanguageConfirm = async ({ targetLang: tl }) => {
     if (!imageFile) return  // guard: no image selected (shouldn't happen, but safe)
     const myRunId = ++runIdRef.current  // capture unique ID for this run
     const stale = () => runIdRef.current !== myRunId  // true if superseded
@@ -153,7 +153,7 @@ export default function App() {
               if (stale()) return
               const pageText = await extractTextAuto(pageBlobs[i], (p) =>
                 setOcrProgress(Math.round((i / pageBlobs.length) * 100 + p / pageBlobs.length)),
-                sl !== 'auto' ? sl : null
+                null
               )
               if (pageText?.trim()) parts.push(pageText.trim())
             }
@@ -162,7 +162,7 @@ export default function App() {
         }
 
         if (!rawText) {
-          rawText = await extractTextAuto(imageFile, (p) => setOcrProgress(p), sl !== 'auto' ? sl : null)
+          rawText = await extractTextAuto(imageFile, (p) => setOcrProgress(p), null)
           if (stale()) return
         }
 
@@ -184,7 +184,7 @@ export default function App() {
         // coherent text. This is the key step for readable, consistent output.
         const cleanedText = isNative ? cleaned : reconstructOCRLines(cleaned)
 
-        const { text: translated, detectedLang: dl } = await translateText(cleanedText, sl || 'auto', tl.code, (p) => setTranslateProgress(p))
+        const { text: translated, detectedLang: dl } = await translateText(cleanedText, 'auto', tl.code, (p) => setTranslateProgress(p))
         if (stale()) return
 
         setTranslateProgress(100)

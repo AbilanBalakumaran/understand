@@ -5,15 +5,7 @@ import { useAppLang } from '../context/AppLang'
 const STORAGE_KEY  = 'understand_lastTargetLang'
 const RECENT_KEY   = 'understand_recentTargets'
 const FAV_KEY      = 'understand_favTargets'
-const SRC_KEY      = 'understand_lastSourceLang'
 const MAX_RECENT   = 5
-
-function loadLastSource() {
-  try { return localStorage.getItem(SRC_KEY) || '' } catch { return '' }
-}
-function saveLastSource(code) {
-  try { localStorage.setItem(SRC_KEY, code) } catch {}
-}
 
 function loadLastTarget() {
   try {
@@ -49,9 +41,6 @@ const UI = {
     noResult:    (q) => `Aucune langue trouvée pour « ${q} »`,
     selected:    'Langue sélectionnée',
     create:      "Créer l'audio",
-    srcLabel:    'Langue du document *',
-    srcHint:     'Obligatoire — aide à lire le texte avec précision',
-    srcAuto:     '— Sélectionner la langue du document —',
   },
   en: {
     title:       'Choose your language',
@@ -64,9 +53,6 @@ const UI = {
     noResult:    (q) => `No language found for "${q}"`,
     selected:    'Selected language',
     create:      'Create audio',
-    srcLabel:    'Document language *',
-    srcHint:     'Required — helps read the text accurately',
-    srcAuto:     '— Select document language —',
   },
 }
 
@@ -131,7 +117,6 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
   const [selectedTarget, setSelectedTarget] = useState(() => loadLastTarget())
   const [recentTargets, setRecentTargets]   = useState(() => loadList(RECENT_KEY))
   const [favorites, setFavorites]           = useState(() => loadList(FAV_KEY))
-  const [sourceLang, setSourceLang]         = useState(() => loadLastSource())
 
   // Image zoom modal
   const [modalOpen, setModalOpen] = useState(false)
@@ -180,8 +165,8 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
   }
 
   const handleConfirm = () => {
-    if (!selectedTarget || !sourceLang) return
-    onConfirm({ targetLang: selectedTarget, sourceLang })
+    if (!selectedTarget) return
+    onConfirm({ targetLang: selectedTarget })
   }
 
   const favSet    = new Set(favorites.map((l) => l.code))
@@ -227,47 +212,6 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
 
         <div className="px-4 pt-4 pb-36">
 
-          {/* ── Source language (required) ── */}
-          <div className="mb-5">
-            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">
-              {t.srcLabel}
-            </label>
-            <div className="relative">
-              <select
-                required
-                value={sourceLang}
-                onChange={e => { setSourceLang(e.target.value); saveLastSource(e.target.value) }}
-                className={`w-full appearance-none rounded-2xl px-4 py-3.5 pr-10 text-sm border-2 outline-none transition-colors ${
-                  sourceLang
-                    ? 'border-green-500 bg-green-50 text-gray-800 focus:ring-2 focus:ring-green-400'
-                    : 'border-primary-300 bg-primary-50 text-gray-500 focus:ring-2 focus:ring-primary-400'
-                }`}
-              >
-                <option value="">{t.srcAuto}</option>
-                {TARGET_LANGUAGES.map(l => (
-                  <option key={l.code} value={l.code}>
-                    {l.flag} {appLang === 'fr' ? (l.nameFr || l.name) : l.name}
-                  </option>
-                ))}
-              </select>
-              <svg className="w-4 h-4 text-gray-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
-                fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
-              </svg>
-            </div>
-            <p className={`text-xs mt-1.5 flex items-center gap-1 transition-colors ${sourceLang ? 'text-green-600' : 'text-primary-500'}`}>
-              {sourceLang ? (
-                <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
-                </svg>
-              ) : (
-                <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"/>
-                </svg>
-              )}
-              {t.srcHint}
-            </p>
-          </div>
 
           {/* ── Favorites ── */}
           {showFavs && (
@@ -404,9 +348,9 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
           )}
           <button
             onClick={handleConfirm}
-            disabled={!selectedTarget || !sourceLang}
+            disabled={!selectedTarget}
             className={`w-full flex items-center justify-center gap-2.5 rounded-2xl py-4 text-base font-bold transition-all ${
-              selectedTarget && sourceLang
+              selectedTarget
                 ? 'bg-primary-600 hover:bg-primary-700 active:bg-primary-800 text-white shadow-blue'
                 : 'bg-gray-100 text-gray-400 cursor-not-allowed'
             }`}
