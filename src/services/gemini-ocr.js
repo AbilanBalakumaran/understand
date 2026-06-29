@@ -1,21 +1,24 @@
 /**
- * Gemini Vision OCR — via Cloudflare Worker proxy.
+ * Gemini Vision — via Cloudflare Worker proxy.
  *
- * The Gemini API key lives in the Worker (server-side, never in the bundle).
- * The Worker URL is public but harmless without the key.
+ * Two modes:
  *
- * Falls back to Tesseract automatically on Worker errors or quota exceeded.
+ * processWithGemini(image, targetLang, onProgress)
+ *   PRIMARY — OCR + translation in a single Gemini call.
+ *   Gemini reads the entire image and translates with full document context.
+ *   Returns the final translated text directly.
+ *
+ * extractTextWithGemini(image, onProgress)
+ *   FALLBACK — OCR only. Used when translation is handled separately
+ *   (e.g. PDF native text path).
+ *
+ * Both fall back to Tesseract + Google Translate when the Worker is
+ * unavailable, quota exceeded, or the API key is not configured.
  */
 
-// Worker URL — set via VITE_GEMINI_WORKER_URL env at build time.
-// Default points to the deployed Worker; override in .env for local dev.
 const WORKER_URL = import.meta.env.VITE_GEMINI_WORKER_URL || null
 
-/**
- * Convert a Blob/File to base64 string.
- */
 async function blobToBase64(blob) {
-  // FileReader approach — works back to iOS 7 (unlike blob.arrayBuffer + btoa)
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload  = () => resolve(reader.result.split(',')[1])
@@ -24,43 +27,60 @@ async function blobToBase64(blob) {
   })
 }
 
+async function postToWorker(endpoint, body, signal) {
+  const res = await fetch(WORKER_URL + endpoint, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(body),
+    signal:  signal || AbortSignal.timeout(45000),
+  })
+  const data = await res.json()
+  if (!res.ok) {
+    const msg = data.error || `HTTP ${res.status}`
+    if (res.status === 429 || res.status >= 500) throw new Error('GEMINI_UNAVAILABLE: ' + msg)
+    throw new Error('GEMINI_ERROR: ' + msg)
+  }
+  if (!data.text?.trim()) throw new Error('GEMINI_EMPTY_RESPONSE')
+  return data.text
+}
+
 /**
- * Extract text from a document image using Gemini via the Cloudflare Worker.
- * Throws GEMINI_UNAVAILABLE if the worker is down or quota is exceeded.
+ * PRIMARY path: OCR + translation in one Gemini call.
+ * targetLang = { code: 'fr', name: 'French', nameFr: 'Français', ... }
+ */
+export async function processWithGemini(imageBlob, targetLang, onProgress) {
+  if (!WORKER_URL) throw new Error('GEMINI_KEY_MISSING')
+
+  onProgress?.(10)
+  const base64   = await blobToBase64(imageBlob)
+  const mimeType = imageBlob.type || 'image/jpeg'
+  onProgress?.(20)
+
+  const text = await postToWorker('/process', {
+    image:          base64,
+    mimeType,
+    targetLang:     targetLang.code,
+    targetLangName: targetLang.nameFr || targetLang.name,
+  })
+
+  onProgress?.(100)
+  return text
+}
+
+/**
+ * FALLBACK path: OCR only (for native PDF text extraction context).
  */
 export async function extractTextWithGemini(imageBlob, onProgress) {
   if (!WORKER_URL) throw new Error('GEMINI_KEY_MISSING')
 
-  onProgress?.(15)
-
+  onProgress?.(10)
   const base64   = await blobToBase64(imageBlob)
   const mimeType = imageBlob.type || 'image/jpeg'
+  onProgress?.(20)
 
-  onProgress?.(25)
-
-  const res = await fetch(WORKER_URL + '/ocr', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image: base64, mimeType }),
-    signal: AbortSignal.timeout(30000),
-  })
-
-  onProgress?.(85)
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
-    const msg  = body.error || `HTTP ${res.status}`
-    if (res.status === 429 || res.status >= 500) {
-      throw new Error('GEMINI_UNAVAILABLE: ' + msg)
-    }
-    throw new Error('GEMINI_ERROR: ' + msg)
-  }
-
-  const data = await res.json()
-  if (!data.text?.trim()) throw new Error('GEMINI_EMPTY_RESPONSE')
-
+  const text = await postToWorker('/ocr', { image: base64, mimeType })
   onProgress?.(100)
-  return data.text
+  return text
 }
 
 export function isGeminiAvailable() {

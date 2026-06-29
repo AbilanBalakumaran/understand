@@ -6,6 +6,7 @@ import SplashScreen   from './components/SplashScreen'
 import { extractTextAuto } from './services/ocr'
 import { extractPdfNativeText, convertPdfToImages } from './services/pdf'
 import { translateText } from './services/translate'
+import { processWithGemini, isGeminiAvailable } from './services/gemini-ocr'
 import { requestNotifPermission, sendNotification } from './services/notifications'
 
 const STEP = { UPLOAD: 0, LANGUAGE: 1, AUDIO: 2 }
@@ -135,6 +136,36 @@ export default function App() {
     const run = async () => {
       try {
         const originalPdf = imageFile?._originalPdf
+
+        // ── PATH A: Gemini (OCR + translation in ONE call) ─────────────────
+        // Gemini reads the full image and translates with document-level context.
+        // Much better quality than separate OCR → translate steps.
+        if (isGeminiAvailable() && !originalPdf) {
+          try {
+            const translated = await processWithGemini(
+              imageFile,
+              tl,
+              (p) => {
+                // Map Gemini progress across both bars for smooth UX
+                if (p <= 50) setOcrProgress(p * 2)
+                else { setOcrProgress(100); setTranslateProgress((p - 50) * 2) }
+              }
+            )
+            if (stale()) return
+            if (translated?.trim().length > 3) {
+              setOcrProgress(100)
+              setTranslateProgress(100)
+              setTranslatedText(translated)
+              sendNotification('Understand — Audio prêt ! 🎧', `Votre document a été traduit en ${tl.name}. Touchez pour écouter.`)
+              return
+            }
+          } catch (geminiErr) {
+            // Quota or unavailable → fall through to Tesseract + Google Translate
+            console.warn('[app] Gemini process failed, using fallback:', geminiErr.message)
+          }
+        }
+
+        // ── PATH B: Fallback — Tesseract OCR + Google Translate ────────────
         let rawText  = null
         let isNative = false
 
@@ -172,16 +203,12 @@ export default function App() {
           throw new Error("Aucun texte lisible dans l'image. Prenez une photo plus nette.")
         }
 
-        const cleaned = isNative
-          ? cleanNativePdfText(rawText)
-          : cleanOCRText(rawText)
+        const cleaned = isNative ? cleanNativePdfText(rawText) : cleanOCRText(rawText)
 
         if (!cleaned || cleaned.trim().length < 3) {
           throw new Error("Le texte extrait ne contient pas de contenu lisible. Essayez avec une photo du document seul.")
         }
 
-        // Reconstruct fragmented OCR lines so the translation engine receives
-        // coherent text. This is the key step for readable, consistent output.
         const cleanedText = isNative ? cleaned : reconstructOCRLines(cleaned)
 
         const { text: translated, detectedLang: dl } = await translateText(cleanedText, 'auto', tl.code, (p) => setTranslateProgress(p))
