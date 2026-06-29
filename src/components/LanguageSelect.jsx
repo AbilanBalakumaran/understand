@@ -41,9 +41,9 @@ const UI = {
     noResult:    (q) => `Aucune langue trouvée pour « ${q} »`,
     selected:    'Langue sélectionnée',
     create:      "Créer l'audio",
-    srcLabel:    'Langue du document (optionnel)',
-    srcHint:     'Préciser la langue améliore la précision de la lecture',
-    srcAuto:     '— Détection automatique —',
+    srcLabel:    'Langue du document *',
+    srcHint:     'Obligatoire — aide à lire le texte avec précision',
+    srcAuto:     '— Sélectionner la langue du document —',
   },
   en: {
     title:       'Choose your language',
@@ -56,9 +56,9 @@ const UI = {
     noResult:    (q) => `No language found for "${q}"`,
     selected:    'Selected language',
     create:      'Create audio',
-    srcLabel:    'Document language (optional)',
-    srcHint:     'Specifying the language improves reading accuracy',
-    srcAuto:     '— Auto-detect —',
+    srcLabel:    'Document language *',
+    srcHint:     'Required — helps read the text accurately',
+    srcAuto:     '— Select document language —',
   },
 }
 
@@ -172,8 +172,8 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
   }
 
   const handleConfirm = () => {
-    if (!selectedTarget) return
-    onConfirm({ targetLang: selectedTarget, sourceLang: sourceLang || 'auto' })
+    if (!selectedTarget || !sourceLang) return
+    onConfirm({ targetLang: selectedTarget, sourceLang })
   }
 
   const favSet    = new Set(favorites.map((l) => l.code))
@@ -231,8 +231,8 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
                 onChange={e => setSourceLang(e.target.value)}
                 className={`w-full appearance-none rounded-2xl px-4 py-3.5 pr-10 text-sm border-2 outline-none transition-colors ${
                   sourceLang
-                    ? 'border-primary-500 bg-primary-50 text-gray-800 focus:ring-2 focus:ring-primary-400'
-                    : 'border-gray-200 bg-gray-50 text-gray-500 focus:ring-2 focus:ring-primary-300'
+                    ? 'border-green-500 bg-green-50 text-gray-800 focus:ring-2 focus:ring-green-400'
+                    : 'border-primary-300 bg-primary-50 text-gray-500 focus:ring-2 focus:ring-primary-400'
                 }`}
               >
                 <option value="">{t.srcAuto}</option>
@@ -247,14 +247,18 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
               </svg>
             </div>
-            {!sourceLang && (
-              <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1">
+            <p className={`text-xs mt-1.5 flex items-center gap-1 transition-colors ${sourceLang ? 'text-green-600' : 'text-primary-500'}`}>
+              {sourceLang ? (
+                <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
+                </svg>
+              ) : (
                 <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"/>
                 </svg>
-                {t.srcHint}
-              </p>
-            )}
+              )}
+              {t.srcHint}
+            </p>
           </div>
 
           {/* ── Favorites ── */}
@@ -392,9 +396,9 @@ export default function LanguageSelect({ imagePreview, onConfirm, onBack }) {
           )}
           <button
             onClick={handleConfirm}
-            disabled={!selectedTarget}
+            disabled={!selectedTarget || !sourceLang}
             className={`w-full flex items-center justify-center gap-2.5 rounded-2xl py-4 text-base font-bold transition-all ${
-              selectedTarget
+              selectedTarget && sourceLang
                 ? 'bg-primary-600 hover:bg-primary-700 active:bg-primary-800 text-white shadow-blue'
                 : 'bg-gray-100 text-gray-400 cursor-not-allowed'
             }`}

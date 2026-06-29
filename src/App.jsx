@@ -110,7 +110,8 @@ export default function App() {
             for (let i = 0; i < pageBlobs.length; i++) {
               if (stale()) return
               const pageText = await extractTextAuto(pageBlobs[i], (p) =>
-                setOcrProgress(Math.round((i / pageBlobs.length) * 100 + p / pageBlobs.length))
+                setOcrProgress(Math.round((i / pageBlobs.length) * 100 + p / pageBlobs.length)),
+                sl !== 'auto' ? sl : null
               )
               if (pageText?.trim()) parts.push(pageText.trim())
             }
@@ -119,7 +120,7 @@ export default function App() {
         }
 
         if (!rawText) {
-          rawText = await extractTextAuto(imageFile, (p) => setOcrProgress(p))
+          rawText = await extractTextAuto(imageFile, (p) => setOcrProgress(p), sl !== 'auto' ? sl : null)
           if (stale()) return
         }
 

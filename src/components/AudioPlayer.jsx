@@ -356,9 +356,9 @@ export default function AudioPlayer({
 
             <div className="bg-gradient-to-br from-primary-600 to-primary-800 rounded-3xl p-6 text-white shadow-blue">
 
-              {/* Lang badge + speed */}
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-1.5 bg-white/15 rounded-xl px-2.5 py-1 min-w-0 max-w-[75%]">
+              {/* Lang badge + speed + download (top row) */}
+              <div className="flex items-center justify-between mb-4 gap-2">
+                <div className="flex items-center gap-1.5 bg-white/15 rounded-xl px-2.5 py-1 min-w-0 flex-1">
                   {dl && LANG_DISPLAY[dl] ? (
                     <>
                       <span>{LANG_DISPLAY[dl][0]}</span>
@@ -371,10 +371,21 @@ export default function AudioPlayer({
                   <span>{targetLang.flag}</span>
                   <span className="text-xs text-white/80 truncate">{targetLang.name}</span>
                 </div>
-                <button onClick={handleSpeedChange}
-                  className="px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 active:bg-white/40 text-xs font-bold">
-                  {SPEEDS[speedIndex]}×
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {audioPhase === 'ready' && (
+                    <button onClick={handleDownload}
+                      className="w-9 h-9 rounded-full bg-white/20 hover:bg-white/30 active:bg-white/40 flex items-center justify-center transition-colors"
+                      aria-label="Télécharger l'audio MP3">
+                      <svg className="w-4 h-4 fill-white" viewBox="0 0 24 24">
+                        <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                      </svg>
+                    </button>
+                  )}
+                  <button onClick={handleSpeedChange}
+                    className="px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 active:bg-white/40 text-xs font-bold">
+                    {SPEEDS[speedIndex]}×
+                  </button>
+                </div>
               </div>
 
               {/* ── IDLE ── */}
@@ -418,7 +429,8 @@ export default function AudioPlayer({
                       <span>{formatTime(audioDuration)}</span>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between gap-2">
+                  {/* Controls — centré */}
+                  <div className="flex items-center justify-center gap-4">
                     <button onClick={() => handleSkip(-10)}
                       className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 active:bg-white/40 flex items-center justify-center transition-colors"
                       aria-label="Reculer 10 secondes">
@@ -441,13 +453,6 @@ export default function AudioPlayer({
                       <svg className="w-5 h-5 fill-white" viewBox="0 0 24 24">
                         <path d="M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8V1l-5 5 5 5V7c3.31 0 6 2.69 6 6z"/>
                         <text x="12" y="16" textAnchor="middle" fontSize="5" fill="white" fontWeight="bold">10</text>
-                      </svg>
-                    </button>
-                    <button onClick={handleDownload}
-                      className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 active:bg-white/40 flex items-center justify-center transition-colors"
-                      aria-label="Télécharger l'audio">
-                      <svg className="w-5 h-5 fill-white" viewBox="0 0 24 24">
-                        <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
                       </svg>
                     </button>
                   </div>

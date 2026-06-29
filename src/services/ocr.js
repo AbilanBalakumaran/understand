@@ -211,9 +211,25 @@ function ocrQuality(text) {
   return total > 0 ? letters / total : 0
 }
 
+// ─── ISO-639-1 → Tesseract code (for user-provided source language) ──────────
+// When the user tells us the document language, we skip OSD entirely and load
+// the correct model directly — much more reliable than script auto-detection.
+
+const ISO1_TO_TESSERACT = {
+  fr:'fra', en:'eng', es:'spa', de:'deu', it:'ita', pt:'por', nl:'nld',
+  ru:'rus', ar:'ara', zh:'chi_sim', 'zh-CN':'chi_sim', 'zh-TW':'chi_tra',
+  ja:'jpn', ko:'kor', tr:'tur', pl:'pol', uk:'ukr', sv:'swe', da:'dan',
+  fi:'fin', nb:'nor', no:'nor', cs:'ces', sk:'slk', ro:'ron', hu:'hun',
+  hr:'hrv', bg:'bul', sr:'srp', sl:'slv', et:'est', lv:'lav', lt:'lit',
+  el:'ell', he:'heb', hi:'hin', bn:'ben', ta:'tam', te:'tel', kn:'kan',
+  ml:'mal', si:'sin', th:'tha', my:'mya', km:'khm', ka:'kat', hy:'arm',
+  am:'amh', ur:'urd', fa:'fas',
+}
+
 // ─── Main auto OCR ────────────────────────────────────────────────────────
 //
 // Strategy:
+//   0. If knownLang provided → skip OSD, use the correct model directly
 //   1. Preprocess image (grayscale + auto-contrast + sharpen)
 //   2. OSD script detection
 //   3a. Non-Latin → use combined model (e.g. ara+fra)
@@ -222,7 +238,7 @@ function ocrQuality(text) {
 //      in the output and retry with the correct non-Latin model
 //   5. Return the best result
 
-export async function extractTextAuto(image, onProgress) {
+export async function extractTextAuto(image, onProgress, knownLang = null) {
   // Step 1: Preprocess (browser only — no-op if Canvas unavailable)
   let processedImage = image
   if (typeof document !== 'undefined') {
@@ -234,6 +250,21 @@ export async function extractTextAuto(image, onProgress) {
   }
 
   onProgress?.(5)
+
+  // Step 0: If the user told us the source language, skip OSD entirely.
+  // This is the most reliable path — we know exactly which Tesseract model to use.
+  if (knownLang && knownLang !== 'auto') {
+    const tessCode = ISO1_TO_TESSERACT[knownLang] || ISO1_TO_TESSERACT[knownLang.split('-')[0]]
+    if (tessCode) {
+      // Use combined model (+ fra) to also capture Latin digits, dates, etc.
+      const combined = COMBINED_MODELS[tessCode] || (tessCode + '+fra')
+      const text = await extractText(processedImage, combined, (p) => {
+        onProgress?.(30 + Math.round(p * 0.7))
+      })
+      onProgress?.(100)
+      return text
+    }
+  }
 
   // Step 2: OSD script detection
   const osdScript = await detectScriptViaOsd(processedImage)
