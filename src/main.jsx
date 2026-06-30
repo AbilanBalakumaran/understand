@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 import { AppLangProvider } from './context/AppLang.jsx'
+import './services/pwa.js'  // attach beforeinstallprompt listener before React mounts
 
 // Reload the page whenever a new service worker takes control,
 // so the user always runs the latest version immediately.

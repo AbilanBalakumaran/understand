@@ -282,7 +282,7 @@ export default function App() {
       {/* Splash screen — shown once on launch */}
       {!splashDone && <SplashScreen onDone={() => setSplashDone(true)} />}
 
-      <div className="max-w-md mx-auto relative">
+      <div className="app-column w-full max-w-[430px] mx-auto relative">
         {step === STEP.UPLOAD && (
           <UploadStep
             onImageSelected={(file, preview) => {
