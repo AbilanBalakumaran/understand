@@ -14,6 +14,8 @@
  */
 
 const MAX_CHUNK = 180
+const ELEVENLABS_KEY  = import.meta.env.VITE_ELEVENLABS_API_KEY || null
+const ELEVENLABS_VOICE = '21m00Tcm4TlvDq8ikWAM' // Rachel — multilingual
 
 // ─── AbortSignal polyfill (Chrome 103+ / Safari 16+ / Android < 2022) ────
 
@@ -264,18 +266,44 @@ export function speak(text, lang, { rate = 1.0, onEnd, onError, onChunkStart } =
  * Pre-fetches audio for the full text → single blob (enables seek bar + download).
  *
  * Priority:
- *   1. Gemini TTS (if Worker available) — better quality, all languages
- *   2. Lingva TTS (fallback)
+ *   1. ElevenLabs direct (if VITE_ELEVENLABS_API_KEY set) — best voice quality
+ *   2. Worker /tts (ElevenLabs → Gemini TTS → Google Cloud TTS)
+ *   3. Lingva TTS (fallback)
  * Returns { blob, chunks } or null → caller falls back to streaming.
  */
 export async function generateAudio(text, lang, { onProgress, signal } = {}) {
-  // ── 1. Try Gemini TTS ─────────────────────────────────────────────────
+  // ── 1. ElevenLabs direct ──────────────────────────────────────────────
+  if (ELEVENLABS_KEY) {
+    try {
+      if (signal?.aborted) return null
+      onProgress?.(5)
+      const r = await fetch('https://api.elevenlabs.io/v1/text-to-speech/' + ELEVENLABS_VOICE, {
+        method: 'POST',
+        headers: { 'xi-api-key': ELEVENLABS_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          model_id: 'eleven_multilingual_v2',
+          voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+        }),
+        signal: abortAfter(30000),
+      })
+      if (signal?.aborted) return null
+      if (r.ok) {
+        const mp3 = await r.blob()
+        if (mp3.size > 100) {
+          onProgress?.(100)
+          return { blob: mp3, chunks: splitIntoChunks(text) }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // ── 2. Try Worker /tts (ElevenLabs server-side → Gemini TTS) ─────────
   try {
     const { generateAudioWithGemini, isGeminiAvailable } = await import('./gemini-ocr')
     if (isGeminiAvailable()) {
       if (signal?.aborted) return null
       onProgress?.(5)
-      // Gemini TTS handles the full text in one call (chunks internally on server)
       const wavBlob = await generateAudioWithGemini(text, lang.split('-')[0])
       if (signal?.aborted) return null
       if (wavBlob && wavBlob.size > 100) {
@@ -284,9 +312,8 @@ export async function generateAudio(text, lang, { onProgress, signal } = {}) {
       }
     }
   } catch (e) {
-    // Gemini TTS unavailable or quota → fall through to Lingva
     if (!e.message?.includes('GEMINI_UNAVAILABLE') && !e.message?.includes('GEMINI_KEY_MISSING')) {
-      console.warn('[tts] Gemini TTS error:', e.message)
+      console.warn('[tts] Worker TTS error:', e.message)
     }
   }
 

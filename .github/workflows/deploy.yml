@@ -40,6 +40,7 @@ jobs:
         env:
           VITE_GEMINI_WORKER_URL: ${{ secrets.VITE_GEMINI_WORKER_URL }}
           VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
+          VITE_ELEVENLABS_API_KEY: ${{ secrets.VITE_ELEVENLABS_API_KEY }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
