@@ -51,7 +51,7 @@ const TO_CF_AI = {
 
 const ALLOWED_ORIGINS = [
   'https://abilanbalakumaran.github.io',
-  'https://sweet-credit-4b8a.mangateamz2.workers.dev',
+  'https://understand.mangateamz2.workers.dev',
   'http://localhost:5173',
   'http://localhost:4173',
 ]
